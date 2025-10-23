@@ -1,0 +1,76 @@
+@layer ui-icon {
+    :host {
+        & {
+            --icon-size: 1.25rem;
+            --icon-color: currentColor;
+            --icon-padding: 0.125rem;
+            --ui-icon-mask: none;
+        }
+
+        & {
+            display: inline-grid !important;
+            inline-size: max-content;
+            min-block-size: var(--icon-size, 1.25rem);
+            min-inline-size: var(--icon-size, 1.25rem);
+            block-size: stretch;
+            max-inline-size: stretch;
+            max-block-size: stretch;
+            place-content: center;
+            place-items: center;
+            box-sizing: border-box;
+            padding: clamp(0px, var(--icon-padding, 0.125rem), calc(var(--icon-size) * 0.45));
+            contain: layout paint style;
+            content-visibility: auto;
+            mask-image: none;
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            aspect-ratio: 1 / 1;
+            line-height: 0;
+            overflow: hidden;
+            color: var(--icon-color, currentColor);
+            grid-template-columns: minmax(0px, 1fr);
+            grid-template-rows: minmax(0px, 1fr);
+            object-fit: contain;
+            object-position: center;
+            will-change: transform;
+            transform: translateZ(0);
+            transform-origin: 50% 50%;
+            backface-visibility: hidden;
+        }
+
+        &::before {
+            content: "";
+            display: block;
+            inline-size: stretch;
+            block-size: stretch;
+            aspect-ratio: 1 / 1;
+            background-color: var(--icon-color, currentColor) !important;
+            mask-image: var(--ui-icon-mask, linear-gradient(#0000, #0000));
+            mask-repeat: no-repeat;
+            mask-origin: content-box;
+            mask-clip: content-box;
+            mask-position: center;
+            mask-size: contain;
+            mask-type: alpha;
+            transition: background-color 0.18s ease;
+            object-fit: contain;
+            object-position: center;
+            line-height: 0;
+            padding: 0px;
+            margin: 0px;
+            border: none;
+            outline: none;
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            overflow: hidden;
+            will-change: transform;
+            transform: translateZ(0);
+            transform-origin: 50% 50%;
+            backface-visibility: hidden;
+        }
+    }
+}

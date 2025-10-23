@@ -1,0 +1,35 @@
+{
+    "include": ["./src/**/*.ts", "./src/*.ts"],
+    "compilerOptions": {
+        "outDir": "./dist/",
+        "paths": {
+            "@phosphor-icons/core/assets/*": ["./node_modules/@phosphor-icons/core/assets/*"],
+            "fonts/*": ["../../shared/assets/fonts/*"],
+            "fest/*": ["../../shared/fest/*"],
+            "fest/cdnImport": ["../../cdnImport.mjs"],
+            "fest/polyfill/*": ["../../shared/fest/polyfill/*"],
+            "polyfill/*": ["../../shared/fest/polyfill/*"]
+        },
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ESNext", "DOM", "WebWorker"],
+        "esModuleInterop": true,
+        "strict": true,
+        "forceConsistentCasingInFileNames": true,
+        "allowJs": true,
+        "allowArbitraryExtensions": true,
+        "allowSyntheticDefaultImports": true,
+        "allowUmdGlobalAccess": true,
+        "allowUnreachableCode": true,
+        "allowUnusedLabels": true,
+        "noImplicitAny": false,
+        "declaration": false,
+        "noImplicitThis": false,
+        "inlineSources": true,
+        "inlineSourceMap": true,
+        "sourceMap": false,
+        "typeRoots": ["plugins/global.d.ts"],
+        "experimentalDecorators": true
+    }
+}
