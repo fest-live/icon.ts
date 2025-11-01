@@ -1,6 +1,6 @@
 // should to return from source code to style element (in shadow DOM)
 export const preloadStyle = (srcCode: string) => {
-    const content = typeof srcCode === "string" ? srcCode.trim() : "";
+    const content = typeof srcCode === "string" ? srcCode?.trim?.() : "";
     if (!content) { return () => null as HTMLStyleElement | null; }
     const styleURL = URL.createObjectURL(new Blob([content], {type: "text/css"}));
 
@@ -103,7 +103,7 @@ export class UIPhosphorIcon extends HTMLElement {
     }
 
     set iconStyle(value: string) {
-        const normalized = (value ?? "").trim().toLowerCase();
+        const normalized = (value ?? "")?.trim?.()?.toLowerCase?.();
         if (!normalized) {
             this.removeAttribute("icon-style");
             return;
@@ -188,7 +188,7 @@ export class UIPhosphorIcon extends HTMLElement {
             }
             case "icon-style": {
                 if (newValue) {
-                    const normalized = newValue.trim().toLowerCase();
+                    const normalized = newValue?.trim?.()?.toLowerCase?.();
                     if (normalized !== newValue) {
                         this.setAttribute("icon-style", normalized);
                         return;
@@ -230,7 +230,7 @@ export class UIPhosphorIcon extends HTMLElement {
 
     public updateIcon(icon?: string) {
         const candidate = typeof icon === "string" && icon.length > 0 ? icon : this.icon;
-        const nextIcon = candidate?.trim() ?? "";
+        const nextIcon = candidate?.trim?.() ?? "";
 
         if (!this.isConnected) {
             this.#pendingIconName = nextIcon;
@@ -241,7 +241,7 @@ export class UIPhosphorIcon extends HTMLElement {
 
         if (!nextIcon) { return this; }
 
-        const iconStyle = (this.iconStyle || "duotone").trim().toLowerCase();
+        const iconStyle = (this.iconStyle ?? "duotone")?.trim?.()?.toLowerCase?.();
         const ICON = camelToKebab(nextIcon);
         const assetPath = `./assets/icons/${iconStyle}/${ICON}-${iconStyle}.svg`;
         const requestKey = `${iconStyle}:${ICON}`;
