@@ -4,7 +4,7 @@
             --icon-size: 1.25rem;
             --icon-color: currentColor;
             --icon-padding: 0.125rem;
-            --ui-icon-mask: none;
+            --icon-image: none;
         }
 
         & {
@@ -47,7 +47,7 @@
             block-size: stretch;
             aspect-ratio: 1 / 1;
             background-color: var(--icon-color, currentColor) !important;
-            mask-image: var(--ui-icon-mask, linear-gradient(#0000, #0000));
+            mask-image: var(--icon-image, linear-gradient(#0000, #0000));
             mask-repeat: no-repeat;
             mask-origin: content-box;
             mask-clip: content-box;

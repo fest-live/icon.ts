@@ -127,6 +127,48 @@ export const ensureMaskValue = (url: string, cacheKey: string, bucket: number): 
 };
 
 //
+export const cssVariableCache = new Map<string, string>();
+export const iconImageCache = new Map<string, { varName: string; imageSetValue: string }>();
+
+export const camelToKebab = (camel: string) => {
+    if (typeof camel !== "string") { return ""; }
+    return camel
+        .replace(/[_\s]+/g, "-")
+        .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+        .replace(/([A-Z])([A-Z][a-z])/g, "$1-$2")
+        .toLowerCase();
+};
+
+export const createImageSetValue = (url: string, resolutions: Array<{ scale: number; size: number }> = []): string => {
+    if (!url) { return "linear-gradient(#0000, #0000)"; }
+
+    const baseSet = [`url("${url}") 1x`];
+
+    for (const { scale } of resolutions) {
+        if (scale > 1) {
+            baseSet.push(`url("${url}") ${scale}x`);
+        }
+    }
+
+    return `image-set(${baseSet.join(", ")})`;
+};
+
+export const generateIconImageVariable = (
+    iconName: string,
+    url: string,
+    bucket: number
+): { varName: string; imageSetValue: string } => {
+    const key = `${iconName}@${bucket}`;
+    const varName = `--icon-image-${camelToKebab(iconName)}`;
+    const imageSetValue = createImageSetValue(url, [
+        { scale: 1, size: bucket },
+        { scale: 2, size: bucket * 2 }
+    ]);
+
+    iconImageCache.set(key, { varName, imageSetValue });
+    return { varName, imageSetValue };
+};
+
 export const isPathURL = (url: string)=>{ return URL.canParse(url, location.origin) || URL.canParse(url, "localhost"); }
 export const rasterizeSVG = (blob)=>{ return isPathURL(blob) ? blob : URL.createObjectURL(blob); }
 export const loadAsImage  = async (name: any, creator?: (name: any)=>any)=>{

@@ -14,16 +14,6 @@ export const preloadStyle = (srcCode: string) => {
     return () => styleEl?.cloneNode?.(true);;
 };
 
-// Convert camelCase / PascalCase / snake_case to kebab-case
-export const camelToKebab = (camel: string) => {
-    if (typeof camel !== "string") { return ""; }
-    return camel
-        .replace(/[_\s]+/g, "-")
-        .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-        .replace(/([A-Z])([A-Z][a-z])/g, "$1-$2")
-        .toLowerCase();
-};
-
 // @ts-ignore – Vite inline import
 import styles from "./Phosphor.scss?inline";
 import {
@@ -31,6 +21,8 @@ import {
     loadAsImage,
     MIN_RASTER_SIZE,
     quantizeToBucket,
+    camelToKebab,
+    generateIconImageVariable,
     type DevicePixelSize,
 } from "./Loader";
 
@@ -300,8 +292,8 @@ export class UIPhosphorIcon extends HTMLElement {
             this.style.setProperty("--icon-size", sizeAttr);
         }
 
-        if (!this.style.getPropertyValue("--ui-icon-mask")) {
-            this.style.setProperty("--ui-icon-mask", this.#maskRef.value || "linear-gradient(#0000, #0000)");
+        if (!this.style.getPropertyValue("--icon-image")) {
+            this.style.setProperty("--icon-image", this.#maskRef.value || "linear-gradient(#0000, #0000)");
         }
     }
 
@@ -363,7 +355,8 @@ export class UIPhosphorIcon extends HTMLElement {
                 .then((maskValue) => {
                     if (this.#maskRef.value !== maskValue) {
                         this.#maskRef.value = maskValue;
-                        self.style.setProperty("--ui-icon-mask", maskValue);
+                        self.style.setProperty("--icon-image", maskValue);
+                        generateIconImageVariable(this.#maskKeyBase, url, bucket);
                     }
                 })
                 .catch((error) => {
