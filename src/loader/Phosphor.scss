@@ -34,7 +34,6 @@
             grid-template-rows: minmax(0px, 1fr);
             object-fit: contain;
             object-position: center;
-            will-change: transform;
             transform: translateZ(0);
             transform-origin: 50% 50%;
             backface-visibility: hidden;
@@ -67,7 +66,6 @@
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
             overflow: hidden;
-            will-change: transform;
             transform: translateZ(0);
             transform-origin: 50% 50%;
             backface-visibility: hidden;
