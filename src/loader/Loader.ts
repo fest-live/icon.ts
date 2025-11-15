@@ -3,6 +3,7 @@
 //import * as icons from "lucide";
 export const iconMap = new Map<string, Promise<string>>();
 export const maskCache = new Map<string, string>();
+export const resolvedUrlCache = new Map<string, string>();
 
 export const rasterPromiseCache = new Map<string, Promise<string>>();
 export const imageElementCache = new Map<string, Promise<HTMLImageElement>>();
@@ -11,7 +12,122 @@ export const MIN_RASTER_SIZE = 32;
 
 export type DevicePixelSize = { inline: number; block: number };
 
+const globalScope = typeof globalThis !== "undefined" ? (globalThis as { location?: Location }) : {};
+
+const pickBaseUrl = (): string | undefined => {
+    try {
+        if (typeof document !== "undefined" && typeof document.baseURI === "string" && document.baseURI !== "about:blank") {
+            return document.baseURI;
+        }
+    } catch {
+        /* noop */
+    }
+
+    try {
+        const { location } = globalScope;
+        if (location?.href && location.href !== "about:blank") {
+            return location.href;
+        }
+        if (location?.origin) {
+            return location.origin;
+        }
+    } catch {
+        /* noop */
+    }
+    return undefined;
+};
+
+const DEFAULT_BASE_URL = pickBaseUrl();
+
 export const fallbackMaskValue = (url: string) => (!url ? "none" : `url("${url}")`);
+
+export const resolveAssetUrl = (input: string): string => {
+    if (!input || typeof input !== "string") { return ""; }
+    const cached = resolvedUrlCache.get(input);
+    if (cached) { return cached; }
+
+    let resolved = input;
+    if (typeof URL === "function") {
+        try {
+            resolved = DEFAULT_BASE_URL ? new URL(input, DEFAULT_BASE_URL).href : new URL(input).href;
+        } catch {
+            try {
+                resolved = new URL(input, globalScope.location?.origin ?? undefined).href;
+            } catch {
+                resolved = input;
+            }
+        }
+    }
+
+    resolvedUrlCache.set(input, resolved);
+    if (!resolvedUrlCache.has(resolved)) {
+        resolvedUrlCache.set(resolved, resolved);
+    }
+    return resolved;
+};
+
+const collectMaskCacheKeys = (cacheKey: string | undefined, normalizedUrl: string, bucket: number): string[] => {
+    const sanitizedKey = (cacheKey ?? "").trim();
+    const keyFromCache = sanitizedKey ? `${sanitizedKey}@${bucket}` : "";
+    const keyFromUrl = normalizedUrl ? `${normalizedUrl}@${bucket}` : "";
+    const fallback = keyFromCache || keyFromUrl || `${bucket}`;
+
+    return Array.from(
+        new Set(
+            [fallback, keyFromUrl]
+                .filter((value): value is string => Boolean(value))
+        )
+    );
+};
+
+const shareMaskValueAcrossKeys = (value: string, keys: string[]) => {
+    for (const key of keys) {
+        maskCache.set(key, value);
+    }
+    return value;
+};
+
+const findCachedMaskValue = (keys: string[]): string | undefined => {
+    for (const key of keys) {
+        const cached = maskCache.get(key);
+        if (cached) {
+            for (const alias of keys) {
+                if (alias !== key && !maskCache.has(alias)) {
+                    maskCache.set(alias, cached);
+                }
+            }
+            return cached;
+        }
+    }
+    return undefined;
+};
+
+const findPendingPromise = (keys: string[]): Promise<string> | undefined => {
+    for (const key of keys) {
+        const pending = rasterPromiseCache.get(key);
+        if (pending) {
+            for (const alias of keys) {
+                if (alias !== key && !rasterPromiseCache.has(alias)) {
+                    rasterPromiseCache.set(alias, pending);
+                }
+            }
+            return pending;
+        }
+    }
+    return undefined;
+};
+
+const storePromiseForKeys = (promise: Promise<string>, keys: string[]) => {
+    for (const key of keys) {
+        rasterPromiseCache.set(key, promise);
+    }
+};
+
+const clearPromiseForKeys = (keys: string[]) => {
+    for (const key of keys) {
+        rasterPromiseCache.delete(key);
+    }
+};
 
 export const quantizeToBucket = (value: number): number => {
     if (!Number.isFinite(value) || value <= 0) { value = MIN_RASTER_SIZE; }
@@ -21,24 +137,25 @@ export const quantizeToBucket = (value: number): number => {
 };
 
 export const loadImageElement = (url: string): Promise<HTMLImageElement> => {
-    if (!url) { return Promise.reject(new Error("Invalid icon URL")); }
-    if (!imageElementCache.has(url)) {
+    const resolvedUrl = resolveAssetUrl(url);
+    if (!resolvedUrl) { return Promise.reject(new Error("Invalid icon URL")); }
+    if (!imageElementCache.has(resolvedUrl)) {
         const promise = new Promise<HTMLImageElement>((resolve, reject) => {
             const img = new Image();
             try { img.decoding = "async"; } catch (_) { /* noop */ }
             try { img.crossOrigin = "anonymous"; } catch (_) { /* noop */ }
             img.onload = () => resolve(img);
             img.onerror = (_event) => reject(new Error(`Failed to load icon: ${url}`));
-            img.src = new URL(url, location.origin)?.href ?? url;
+            img.src = resolvedUrl;
         }).then(async (img) => {
             if (typeof img.decode === "function") {
                 try { await img.decode(); } catch (_) { /* ignore decode errors */ }
             }
             return img;
         });
-        imageElementCache.set(url, promise);
+        imageElementCache.set(resolvedUrl, promise);
     }
-    return imageElementCache.get(url)!;
+    return imageElementCache.get(resolvedUrl)!;
 };
 
 export const createCanvas = (size: number): OffscreenCanvas | HTMLCanvasElement => {
@@ -98,31 +215,38 @@ export const rasterizeSvgToMask = async (url: string, bucket: number): Promise<s
     return fallbackMaskValue(rasterUrl);
 };
 
-export const ensureMaskValue = (url: string, cacheKey: string, bucket: number): Promise<string> => {
-    const safeUrl = url || "";
-    const key = `${cacheKey}@${bucket}`;
-    const cached = maskCache.get(key);
+export const ensureMaskValue = (url: string, cacheKey: string | undefined, bucket: number): Promise<string> => {
+    const safeUrl = typeof url === "string" ? url : "";
+    const normalizedUrl = resolveAssetUrl(safeUrl);
+    const effectiveUrl = normalizedUrl || safeUrl;
+    const cacheKeys = collectMaskCacheKeys(cacheKey, normalizedUrl, bucket);
+
+    if (!effectiveUrl) {
+        const fallback = fallbackMaskValue("");
+        shareMaskValueAcrossKeys(fallback, cacheKeys);
+        return Promise.resolve(fallback);
+    }
+
+    const cached = findCachedMaskValue(cacheKeys);
     if (cached) { return Promise.resolve(cached); }
-    const pending = rasterPromiseCache.get(key);
+
+    const pending = findPendingPromise(cacheKeys);
     if (pending) { return pending; }
 
-    const promise = rasterizeSvgToMask(safeUrl, bucket)
-        .then((maskValue) => {
-            maskCache.set(key, maskValue);
-            rasterPromiseCache.delete(key);
-            return maskValue;
-        })
+    const promise = rasterizeSvgToMask(effectiveUrl, bucket)
+        .then((maskValue) => shareMaskValueAcrossKeys(maskValue, cacheKeys))
         .catch((error) => {
-            rasterPromiseCache.delete(key);
-            const fallback = fallbackMaskValue(safeUrl);
-            if (safeUrl && typeof console !== "undefined") {
+            const fallback = fallbackMaskValue(effectiveUrl);
+            if (effectiveUrl && typeof console !== "undefined") {
                 console.warn?.("[ui-icon] Rasterization failed, using SVG mask", error);
             }
-            maskCache.set(key, fallback);
-            return fallback;
+            return shareMaskValueAcrossKeys(fallback, cacheKeys);
+        })
+        .finally(() => {
+            clearPromiseForKeys(cacheKeys);
         });
 
-    rasterPromiseCache.set(key, promise);
+    storePromiseForKeys(promise, cacheKeys);
     return promise;
 };
 
@@ -169,10 +293,31 @@ export const generateIconImageVariable = (
     return { varName, imageSetValue };
 };
 
-export const isPathURL = (url: string)=>{ return URL.canParse(url, location.origin) || URL.canParse(url, "localhost"); }
-export const rasterizeSVG = (blob)=>{ return isPathURL(blob) ? blob : URL.createObjectURL(blob); }
+export const isPathURL = (url: unknown): url is string => {
+    if (typeof url !== "string" || !url) { return false; }
+    if (typeof URL === "undefined") {
+        return /^([a-z]+:)?\/\//i.test(url) || url.startsWith("/") || url.startsWith("./") || url.startsWith("../");
+    }
+
+    if (typeof URL.canParse === "function") {
+        try {
+            if (URL.canParse(url, DEFAULT_BASE_URL)) { return true; }
+            if (globalScope.location?.origin && URL.canParse(url, globalScope.location.origin)) { return true; }
+        } catch {
+            /* noop */
+        }
+    }
+
+    try {
+        new URL(url, DEFAULT_BASE_URL ?? globalScope.location?.origin ?? undefined);
+        return true;
+    } catch {
+        return false;
+    }
+};
+export const rasterizeSVG = (blob: Blob | string)=>{ return isPathURL(blob) ? resolveAssetUrl(blob) : URL.createObjectURL(blob); }
 export const loadAsImage  = async (name: any, creator?: (name: any)=>any)=>{
-    if (isPathURL(name)) { return name; }
+    if (isPathURL(name)) { return resolveAssetUrl(name); }
     // @ts-ignore // !experimental `getOrInsert` feature!
     return iconMap.getOrInsertComputed(name, async ()=>{
         const element = await (creator ? creator?.(name) : name);
