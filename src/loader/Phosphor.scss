@@ -27,7 +27,6 @@
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
             aspect-ratio: 1 / 1;
-            line-height: 0;
             overflow: hidden;
             color: var(--icon-color, currentColor);
             grid-template-columns: minmax(0px, 1fr);
@@ -37,6 +36,8 @@
             transform: translateZ(0);
             transform-origin: 50% 50%;
             backface-visibility: hidden;
+            font-size: 0px;
+            line-height: 0;
         }
 
         &::before {
