@@ -57,6 +57,8 @@ export class UIPhosphorIcon extends HTMLElement {
     #maskRef = { value: "" };
     #styleAttached = false;
     #pendingIconName: string | null = null;
+    #intersectionObserver?: IntersectionObserver;
+    #isIntersecting = false;
 
     constructor(
         options: Partial<{ icon: string; iconStyle: string; padding: number | string }> = {},
@@ -138,6 +140,7 @@ export class UIPhosphorIcon extends HTMLElement {
     connectedCallback(): void {
         this.#applyHostDefaults();
         this.#setupResizeObserver(this);
+        this.#setupVisibilityObserver();
 
         if (!this.#styleAttached) {
             const styleNode = createStyle?.() ?? null;
@@ -163,6 +166,7 @@ export class UIPhosphorIcon extends HTMLElement {
     disconnectedCallback(): void {
         this.#resizeObserver?.disconnect();
         this.#resizeObserver = undefined;
+        this.#teardownVisibilityObserver();
         this.#queuedMaskUpdate = null;
     }
 
@@ -229,6 +233,11 @@ export class UIPhosphorIcon extends HTMLElement {
             return this;
         }
 
+        if (typeof IntersectionObserver !== "undefined" && !this.#isIntersecting) {
+            this.#pendingIconName = nextIcon;
+            return this;
+        }
+
         this.#pendingIconName = null;
 
         if (!nextIcon) { return this; }
@@ -240,20 +249,69 @@ export class UIPhosphorIcon extends HTMLElement {
 
         this.#maskKeyBase = requestKey;
 
-        loadAsImage(assetPath)
-            ?.then((url) => {
-                if (!url) { return; }
-                if (this.#maskKeyBase !== requestKey) { return; } // игнор, если уже запросили новую иконку
-                this.#currentIconUrl = url;
-                this.#queueMaskUpdate();
-            })
-            ?.catch((error) => {
-                if (typeof console !== "undefined") {
-                    console.warn?.("[ui-icon] Failed to load icon", assetPath, error);
-                }
-            });
+        //
+        requestAnimationFrame(() => {
+            if (this?.checkVisibility?.({
+                contentVisibilityAuto: true,
+                opacityProperty: false,
+                visibilityProperty: false,
+            })) {
+                loadAsImage(assetPath)
+                    ?.then((url) => {
+                        if (!url) { return; }
+                        if (this.#maskKeyBase !== requestKey) { return; } // игнор, если уже запросили новую иконку
+                        this.#currentIconUrl = url;
+                        this.#queueMaskUpdate();
+                    })
+                    ?.catch((error) => {
+                        if (typeof console !== "undefined") {
+                            console.warn?.("[ui-icon] Failed to load icon", assetPath, error);
+                        }
+                    });
+            }
+        });
 
         return this;
+    }
+
+    #setupVisibilityObserver() {
+        if (typeof IntersectionObserver === "undefined") {
+            this.#isIntersecting = true;
+            return;
+        }
+
+        if (this.#intersectionObserver) { return; }
+
+        this.#intersectionObserver = new IntersectionObserver((entries) => {
+            const isIntersecting = entries.some((entry) => entry.isIntersecting);
+            if (isIntersecting !== this.#isIntersecting) {
+                this.#isIntersecting = isIntersecting;
+                if (isIntersecting) {
+                    this.updateIcon(this.#pendingIconName ?? this.icon);
+                }
+            }
+        }, { rootMargin: "100px" });
+
+        this.#intersectionObserver.observe(this);
+
+        // Handle content-visibility
+        // @ts-ignore
+        this.addEventListener("contentvisibilityautostatechange", this.#handleContentVisibility);
+    }
+
+    #teardownVisibilityObserver() {
+        this.#intersectionObserver?.disconnect();
+        this.#intersectionObserver = undefined;
+        // @ts-ignore
+        this.removeEventListener("contentvisibilityautostatechange", this.#handleContentVisibility);
+    }
+
+    #handleContentVisibility = (e: Event) => {
+        // @ts-ignore
+        if (e.skipped === false) {
+            this.#isIntersecting = true;
+            this.updateIcon(this.#pendingIconName ?? this.icon);
+        }
     }
 
     #ensureShadowRoot() {
