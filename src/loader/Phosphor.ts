@@ -309,7 +309,6 @@ export class UIPhosphorIcon extends HTMLElement {
     #handleContentVisibility = (e: Event) => {
         // @ts-ignore
         if (e.skipped === false) {
-            this.#isIntersecting = true;
             this.updateIcon(this.#pendingIconName ?? this.icon);
         }
     }
