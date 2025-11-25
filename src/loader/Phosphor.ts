@@ -328,9 +328,9 @@ export class UIPhosphorIcon extends HTMLElement {
             this.setAttribute("inert", "");
         }
 
-        if (!this.hasAttribute("aria-hidden")) {
+        /*if (!this.hasAttribute("aria-hidden")) {
             this.setAttribute("aria-hidden", "true");
-        }
+        }*/
 
         const paddingOption = this.#options.padding;
         if (
