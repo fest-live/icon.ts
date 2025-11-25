@@ -19,7 +19,7 @@
             place-items: center;
             box-sizing: border-box;
             padding: clamp(0px, var(--icon-padding, 0.125rem), calc(var(--icon-size) * 0.45));
-            contain: layout paint style;
+            contain: none;
             content-visibility: auto;
             mask-image: none;
             pointer-events: none;
@@ -27,7 +27,7 @@
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
             aspect-ratio: 1 / 1;
-            overflow: hidden;
+            overflow: visible;
             color: var(--icon-color, currentColor);
             grid-template-columns: minmax(0px, 1fr);
             grid-template-rows: minmax(0px, 1fr);
@@ -38,6 +38,7 @@
             backface-visibility: hidden;
             font-size: 0px;
             line-height: 0;
+            interactivity: inert;
         }
 
         &::before {
@@ -58,12 +59,14 @@
             object-fit: contain;
             object-position: center;
             line-height: 0;
+            font-size: 0;
             padding: 0px;
             margin: 0px;
             border: none;
             outline: none;
             pointer-events: none;
             user-select: none;
+            interactivity: inert;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
             overflow: hidden;
