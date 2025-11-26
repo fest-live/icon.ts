@@ -402,7 +402,7 @@ export class UIPhosphorIcon extends HTMLElement {
         const self = this as unknown as HTMLElement;
         const forResolve = Promise.withResolvers<void>();
         this.#queuedMaskUpdate = forResolve?.promise;
-        queueMicrotask(() => {
+        requestAnimationFrame(() => {
             this.#queuedMaskUpdate = null;
             forResolve?.resolve();
             const url = this.#currentIconUrl;
