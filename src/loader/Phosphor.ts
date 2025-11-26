@@ -398,10 +398,13 @@ export class UIPhosphorIcon extends HTMLElement {
         if (!this.#currentIconUrl || !this.isConnected) { return; }
         if (this.#queuedMaskUpdate) { return; }
 
+        //
         const self = this as unknown as HTMLElement;
-
-        this.#queuedMaskUpdate = Promise.resolve().then(() => {
+        const forResolve = Promise.withResolvers<void>();
+        this.#queuedMaskUpdate = forResolve?.promise;
+        queueMicrotask(() => {
             this.#queuedMaskUpdate = null;
+            forResolve?.resolve();
             const url = this.#currentIconUrl;
             if (!url || !this.isConnected) { return; }
 
