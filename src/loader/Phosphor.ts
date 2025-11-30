@@ -168,6 +168,7 @@ export class UIPhosphorIcon extends HTMLElement {
         this.#resizeObserver = undefined;
         this.#teardownVisibilityObserver();
         this.#queuedMaskUpdate = null;
+        this.#retryAttempt = 0;
     }
 
     attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null) {
@@ -224,6 +225,10 @@ export class UIPhosphorIcon extends HTMLElement {
         }
     }
 
+    #retryAttempt = 0;
+    static readonly #MAX_ICON_RETRIES = 3;
+    static readonly #RETRY_DELAY_MS = 500;
+
     public updateIcon(icon?: string) {
         const candidate = typeof icon === "string" && icon.length > 0 ? icon : this.icon;
         const nextIcon = candidate?.trim?.() ?? "";
@@ -261,10 +266,20 @@ export class UIPhosphorIcon extends HTMLElement {
                         if (!url) { return; }
                         if (this.#maskKeyBase !== requestKey) { return; } // игнор, если уже запросили новую иконку
                         this.#currentIconUrl = url;
+                        this.#retryAttempt = 0; // Reset retry counter on success
                         this.#queueMaskUpdate();
                     })
                     ?.catch((error) => {
-                        if (typeof console !== "undefined") {
+                        // Handle timeout - queue for delayed retry
+                        const isTimeout = error instanceof Error && error.message.includes("Timeout");
+                        if (isTimeout && this.#retryAttempt < UIPhosphorIcon.#MAX_ICON_RETRIES && this.isConnected) {
+                            this.#retryAttempt++;
+                            setTimeout(() => {
+                                if (this.isConnected && this.#maskKeyBase === requestKey) {
+                                    this.updateIcon(nextIcon);
+                                }
+                            }, UIPhosphorIcon.#RETRY_DELAY_MS * this.#retryAttempt);
+                        } else if (typeof console !== "undefined") {
                             console.warn?.("[ui-icon] Failed to load icon", assetPath, error);
                         }
                     });

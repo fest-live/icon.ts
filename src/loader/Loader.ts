@@ -10,6 +10,41 @@ export const imageElementCache = new Map<string, Promise<HTMLImageElement>>();
 export const MAX_RASTER_SIZE = 512;
 export const MIN_RASTER_SIZE = 32;
 
+// Timeout and retry queue configuration
+const FETCH_TIMEOUT_MS = 2000;
+const RETRY_DELAY_MS = 500;
+const MAX_RETRIES = 3;
+
+// Delayed retry queue
+type QueuedItem = { name: string; creator?: (name: any) => any; resolve: (v: string) => void; reject: (e: Error) => void; retries: number };
+const retryQueue: QueuedItem[] = [];
+let retryScheduled = false;
+
+const scheduleRetryQueue = () => {
+    if (retryScheduled || retryQueue.length === 0) { return; }
+    retryScheduled = true;
+    setTimeout(processRetryQueue, RETRY_DELAY_MS);
+};
+
+const processRetryQueue = () => {
+    retryScheduled = false;
+    const batch = retryQueue.splice(0, Math.min(4, retryQueue.length));
+    for (const item of batch) {
+        loadAsImageInternal(item.name, item.creator, item.retries)
+            .then(item.resolve)
+            .catch(item.reject);
+    }
+    scheduleRetryQueue();
+};
+
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("Timeout")), ms);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+};
+
 export type DevicePixelSize = { inline: number; block: number };
 
 const globalScope = typeof globalThis !== "undefined" ? (globalThis as { location?: Location }) : {};
@@ -142,16 +177,43 @@ export const loadImageElement = (url: string): Promise<HTMLImageElement> => {
     if (!imageElementCache.has(resolvedUrl)) {
         const promise = new Promise<HTMLImageElement>((resolve, reject) => {
             const img = new Image();
+            let settled = false;
+
+            // Timeout for image loading to prevent stuck preloading
+            const timeoutId = setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    img.onload = null;
+                    img.onerror = null;
+                    reject(new Error(`Timeout loading icon: ${url}`));
+                }
+            }, FETCH_TIMEOUT_MS);
+
             try { img.decoding = "async"; } catch (_) { /* noop */ }
             try { img.crossOrigin = "anonymous"; } catch (_) { /* noop */ }
-            img.onload = () => resolve(img);
-            img.onerror = (_event) => reject(new Error(`Failed to load icon: ${url}`));
+
+            img.onload = () => {
+                if (settled) { return; }
+                settled = true;
+                clearTimeout(timeoutId);
+                resolve(img);
+            };
+            img.onerror = (_event) => {
+                if (settled) { return; }
+                settled = true;
+                clearTimeout(timeoutId);
+                reject(new Error(`Failed to load icon: ${url}`));
+            };
             img.src = resolvedUrl;
         }).then(async (img) => {
             if (typeof img.decode === "function") {
                 try { await img.decode(); } catch (_) { /* ignore decode errors */ }
             }
             return img;
+        }).catch((error) => {
+            // Remove from cache on failure to allow retry
+            imageElementCache.delete(resolvedUrl);
+            throw error;
         });
         imageElementCache.set(resolvedUrl, promise);
     }
@@ -316,15 +378,40 @@ export const isPathURL = (url: unknown): url is string => {
     }
 };
 export const rasterizeSVG = (blob: Blob | string)=>{ return isPathURL(blob) ? resolveAssetUrl(blob) : URL.createObjectURL(blob); }
-export const loadAsImage  = async (name: any, creator?: (name: any)=>any)=>{
+
+// Internal loader with retry support
+const loadAsImageInternal = async (name: any, creator?: (name: any) => any, attempt = 0): Promise<string> => {
     if (isPathURL(name)) { return resolveAssetUrl(name); }
-    // @ts-ignore // !experimental `getOrInsert` feature!
-    return iconMap.getOrInsertComputed(name, async ()=>{
+
+    const doLoad = async (): Promise<string> => {
         const element = await (creator ? creator?.(name) : name);
         if (isPathURL(element)) { return element; }
         let file: any = name;
         if (element instanceof Blob || element instanceof File) { file = element; }
-        else { const text = typeof element == "string" ? element : element.outerHTML; file = new Blob([`<?xml version=\"1.0\" encoding=\"UTF-8\"?>`, text], { type: "image/svg+xml" }); }
+        else {
+            const text = typeof element == "string" ? element : element.outerHTML;
+            file = new Blob([`<?xml version=\"1.0\" encoding=\"UTF-8\"?>`, text], { type: "image/svg+xml" });
+        }
         return rasterizeSVG(file);
-    });
+    };
+
+    try {
+        // First attempt with timeout
+        return await withTimeout(doLoad(), FETCH_TIMEOUT_MS);
+    } catch (error) {
+        // On timeout, queue for retry if not exceeded max retries
+        if (attempt < MAX_RETRIES && error instanceof Error && error.message === "Timeout") {
+            return new Promise((resolve, reject) => {
+                retryQueue.push({ name, creator, resolve, reject, retries: attempt + 1 });
+                scheduleRetryQueue();
+            });
+        }
+        throw error;
+    }
+};
+
+export const loadAsImage = async (name: any, creator?: (name: any) => any): Promise<string> => {
+    if (isPathURL(name)) { return resolveAssetUrl(name); }
+    // @ts-ignore // !experimental `getOrInsert` feature!
+    return iconMap.getOrInsertComputed(name, () => loadAsImageInternal(name, creator, 0));
 };
