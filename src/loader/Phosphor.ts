@@ -23,6 +23,8 @@ import {
     quantizeToBucket,
     camelToKebab,
     generateIconImageVariable,
+    registerIconRule,
+    hasIconRule,
     type DevicePixelSize,
 } from "./Loader";
 
@@ -364,9 +366,9 @@ export class UIPhosphorIcon extends HTMLElement {
             this.style.setProperty("--icon-size", sizeAttr);
         }
 
-        if (!this.style.getPropertyValue("--icon-image")) {
-            this.style.setProperty("--icon-image", this.#maskRef.value || "linear-gradient(#0000, #0000)");
-        }
+        // Note: --icon-image is now set via CSS rules with attribute selectors
+        // e.g., ui-icon[icon="house"][icon-style="duotone"] { --icon-image: image-set(...); }
+        // No inline style needed - the CSS registry handles it lazily
     }
 
     #setupResizeObserver(element: HTMLElement) {
@@ -413,8 +415,6 @@ export class UIPhosphorIcon extends HTMLElement {
         if (!this.#currentIconUrl || !this.isConnected) { return; }
         if (this.#queuedMaskUpdate) { return; }
 
-        //
-        const self = this as unknown as HTMLElement;
         const forResolve = Promise.withResolvers<void>();
         this.#queuedMaskUpdate = forResolve?.promise;
         requestAnimationFrame(() => {
@@ -424,14 +424,26 @@ export class UIPhosphorIcon extends HTMLElement {
             if (!url || !this.isConnected) { return; }
 
             const bucket = this.#getRasterBucket();
-            const cacheKey = this.#maskKeyBase || url;
+            const iconName = camelToKebab(this.icon);
+            const iconStyle = this.iconStyle;
 
-            ensureMaskValue(url, cacheKey, bucket)
+            // Check if CSS rule already exists for this icon combination
+            if (hasIconRule(iconName, iconStyle, bucket)) {
+                // Rule exists, CSS handles the styling via attribute selectors
+                return;
+            }
+
+            // Generate mask value and register CSS rule
+            ensureMaskValue(url, this.#maskKeyBase, bucket)
                 .then((maskValue) => {
+
+                    // Register the icon in CSS registry with attribute-based selector
+                    // The rule: ui-icon[icon="name"][icon-style="style"] { --icon-image: ... }
+                    registerIconRule(iconName, iconStyle, maskValue, bucket);
+
+                    // Keep local ref for fallback/debugging
                     if (this.#maskRef.value !== maskValue) {
                         this.#maskRef.value = maskValue;
-                        self.style.setProperty("--icon-image", maskValue);
-                        generateIconImageVariable(this.#maskKeyBase, url, bucket);
                     }
                 })
                 .catch((error) => {

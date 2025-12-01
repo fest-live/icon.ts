@@ -6,14 +6,23 @@ import {
     cacheRasterIcon,
 } from "./OPFSCache";
 
+import {
+    registerIconRule,
+    hasIconRule,
+} from "./CSSIconRegistry";
+
 //
 //import * as icons from "lucide";
 export const iconMap = new Map<string, Promise<string>>();
-export const maskCache = new Map<string, string>();
-export const resolvedUrlCache = new Map<string, string>();
 
-export const rasterPromiseCache = new Map<string, Promise<string>>();
+// Minimal caches - only for in-flight operations, not long-term storage
+// CSS stylesheet handles the actual caching via attribute selectors
+export const resolvedUrlCache = new Map<string, string>();
 export const imageElementCache = new Map<string, Promise<HTMLImageElement>>();
+
+// Re-export registry functions for external use
+export { registerIconRule, hasIconRule } from "./CSSIconRegistry";
+
 export const MAX_RASTER_SIZE = 512;
 export const MIN_RASTER_SIZE = 32;
 
@@ -108,67 +117,15 @@ export const resolveAssetUrl = (input: string): string => {
     return resolved;
 };
 
-const collectMaskCacheKeys = (cacheKey: string | undefined, normalizedUrl: string, bucket: number): string[] => {
+// In-flight promise tracking to prevent duplicate loads
+const inflightPromises = new Map<string, Promise<string>>();
+
+/**
+ * Generates cache key for icon lookup
+ */
+const makeCacheKey = (cacheKey: string | undefined, normalizedUrl: string, bucket: number): string => {
     const sanitizedKey = (cacheKey ?? "").trim();
-    const keyFromCache = sanitizedKey ? `${sanitizedKey}@${bucket}` : "";
-    const keyFromUrl = normalizedUrl ? `${normalizedUrl}@${bucket}` : "";
-    const fallback = keyFromCache || keyFromUrl || `${bucket}`;
-
-    return Array.from(
-        new Set(
-            [fallback, keyFromUrl]
-                .filter((value): value is string => Boolean(value))
-        )
-    );
-};
-
-const shareMaskValueAcrossKeys = (value: string, keys: string[]) => {
-    for (const key of keys) {
-        maskCache.set(key, value);
-    }
-    return value;
-};
-
-const findCachedMaskValue = (keys: string[]): string | undefined => {
-    for (const key of keys) {
-        const cached = maskCache.get(key);
-        if (cached) {
-            for (const alias of keys) {
-                if (alias !== key && !maskCache.has(alias)) {
-                    maskCache.set(alias, cached);
-                }
-            }
-            return cached;
-        }
-    }
-    return undefined;
-};
-
-const findPendingPromise = (keys: string[]): Promise<string> | undefined => {
-    for (const key of keys) {
-        const pending = rasterPromiseCache.get(key);
-        if (pending) {
-            for (const alias of keys) {
-                if (alias !== key && !rasterPromiseCache.has(alias)) {
-                    rasterPromiseCache.set(alias, pending);
-                }
-            }
-            return pending;
-        }
-    }
-    return undefined;
-};
-
-const storePromiseForKeys = (promise: Promise<string>, keys: string[]) => {
-    for (const key of keys) {
-        rasterPromiseCache.set(key, promise);
-    }
-};
-
-const clearPromiseForKeys = (keys: string[]) => {
-    for (const key of keys) {
-        rasterPromiseCache.delete(key);
-    }
+    return sanitizedKey ? `${sanitizedKey}@${bucket}` : `${normalizedUrl}@${bucket}`;
 };
 
 export const quantizeToBucket = (value: number): number => {
@@ -367,44 +324,39 @@ export const rasterizeSvgToMask = async (url: string, bucket: number, cacheKey?:
     return fallbackMaskValue(rasterUrl);
 };
 
+/**
+ * Ensures a mask value is available for an icon.
+ * Uses CSS registry for caching - the result is registered as a CSS rule
+ * with attribute selectors, so the browser handles caching.
+ */
 export const ensureMaskValue = (url: string, cacheKey: string | undefined, bucket: number): Promise<string> => {
     const safeUrl = typeof url === "string" ? url : "";
     const normalizedUrl = resolveAssetUrl(safeUrl);
     const effectiveUrl = normalizedUrl || safeUrl;
-    const cacheKeys = collectMaskCacheKeys(cacheKey, normalizedUrl, bucket);
+    const key = makeCacheKey(cacheKey, normalizedUrl, bucket);
 
     if (!effectiveUrl) {
-        const fallback = fallbackMaskValue("");
-        shareMaskValueAcrossKeys(fallback, cacheKeys);
-        return Promise.resolve(fallback);
+        return Promise.resolve(fallbackMaskValue(""));
     }
 
-    const cached = findCachedMaskValue(cacheKeys);
-    if (cached) { return Promise.resolve(cached); }
-
-    const pending = findPendingPromise(cacheKeys);
-    if (pending) { return pending; }
+    // Check if already in-flight
+    const inflight = inflightPromises.get(key);
+    if (inflight) { return inflight; }
 
     const promise = rasterizeSvgToMask(effectiveUrl, bucket, cacheKey)
-        .then((maskValue) => shareMaskValueAcrossKeys(maskValue, cacheKeys))
         .catch((error) => {
-            const fallback = fallbackMaskValue(effectiveUrl);
             if (effectiveUrl && typeof console !== "undefined") {
                 console.warn?.("[ui-icon] Rasterization failed, using SVG mask", error);
             }
-            return shareMaskValueAcrossKeys(fallback, cacheKeys);
+            return fallbackMaskValue(effectiveUrl);
         })
         .finally(() => {
-            clearPromiseForKeys(cacheKeys);
+            inflightPromises.delete(key);
         });
 
-    storePromiseForKeys(promise, cacheKeys);
+    inflightPromises.set(key, promise);
     return promise;
 };
-
-//
-export const cssVariableCache = new Map<string, string>();
-export const iconImageCache = new Map<string, { varName: string; imageSetValue: string }>();
 
 export const camelToKebab = (camel: string) => {
     if (typeof camel !== "string") { return ""; }
@@ -415,6 +367,10 @@ export const camelToKebab = (camel: string) => {
         .toLowerCase();
 };
 
+/**
+ * Creates an image-set CSS value for resolution-aware icons.
+ * Used by the CSS registry for generating rules.
+ */
 export const createImageSetValue = (url: string, resolutions: Array<{ scale: number; size: number }> = []): string => {
     if (!url) { return "linear-gradient(#0000, #0000)"; }
 
@@ -429,20 +385,26 @@ export const createImageSetValue = (url: string, resolutions: Array<{ scale: num
     return `image-set(${baseSet.join(", ")})`;
 };
 
+/**
+ * Registers an icon in the CSS registry.
+ * This generates a CSS rule with attribute selectors and image-set.
+ *
+ * @param iconName - The icon name (e.g., "house", "arrow-right")
+ * @param iconStyle - The icon style (e.g., "duotone", "fill")
+ * @param url - The resolved icon URL
+ * @param bucket - The size bucket for the icon
+ */
 export const generateIconImageVariable = (
     iconName: string,
     url: string,
     bucket: number
-): { varName: string; imageSetValue: string } => {
-    const key = `${iconName}@${bucket}`;
-    const varName = `--icon-image-${camelToKebab(iconName)}`;
-    const imageSetValue = createImageSetValue(url, [
-        { scale: 1, size: bucket },
-        { scale: 2, size: bucket * 2 }
-    ]);
+): void => {
+    // Parse iconName to extract the style if it's in "style:name" format
+    const parts = iconName.split(":");
+    const [iconStyle, name] = parts.length === 2 ? parts : ["duotone", iconName];
 
-    iconImageCache.set(key, { varName, imageSetValue });
-    return { varName, imageSetValue };
+    // Register in the CSS stylesheet via registry
+    registerIconRule(name, iconStyle, url, bucket);
 };
 
 export const isPathURL = (url: unknown): url is string => {

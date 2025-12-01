@@ -10,4 +10,14 @@ export {
     getCacheStats as getIconCacheStats,
 } from "./loader/OPFSCache";
 
+// CSS-based icon registry utilities
+export {
+    ensureStyleSheet,
+    registerIconRule,
+    hasIconRule,
+    clearIconRules,
+    getRegistryStats,
+    preregisterIcons,
+} from "./loader/CSSIconRegistry";
+
 console.log(UIPhosphorIcon);

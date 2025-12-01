@@ -1,26 +1,38 @@
+@property --icon-image {
+    syntax: "<image>";
+    inherits: true;
+    initial-value: linear-gradient(#0000, #0000);
+}
+
+@property --icon-color {
+    syntax: "<color>";
+    inherits: true;
+    initial-value: #fff;
+}
+
 @layer ui-icon {
-    :host {
+    :host(ui-icon) {
         & {
             --icon-size: 1.25rem;
             --icon-color: currentColor;
             --icon-padding: 0.125rem;
-            --icon-image: none;
         }
 
         & {
             display: inline-grid !important;
-            inline-size: max-content;
-            min-block-size: var(--icon-size, 1.25rem);
-            min-inline-size: var(--icon-size, 1.25rem);
+            background-color: transparent !important;
+            min-block-size: min(var(--icon-size, fit-content), 100%);
+            min-inline-size: min(var(--icon-size, fit-content), 100%);
             block-size: stretch;
+            inline-size: max-content;
             max-inline-size: stretch;
             max-block-size: stretch;
             place-content: center;
             place-items: center;
             box-sizing: border-box;
-            padding: clamp(0px, var(--icon-padding, 0.125rem), calc(var(--icon-size) * 0.45));
+            padding: var(--icon-padding, 0.125rem);
             contain: none;
-            content-visibility: auto;
+            content-visibility: visible;
             mask-image: none;
             pointer-events: none;
             user-select: none;
@@ -43,12 +55,13 @@
 
         &::before {
             content: "";
-            display: block;
+            display: flex;
             inline-size: stretch;
             block-size: stretch;
             aspect-ratio: 1 / 1;
+            content-visibility: visible;
             background-color: var(--icon-color, currentColor) !important;
-            mask-image: var(--icon-image, linear-gradient(#0000, #0000));
+            mask-image: var(--icon-image, linear-gradient(#0000, #0000)) !important;
             mask-repeat: no-repeat;
             mask-origin: content-box;
             mask-clip: content-box;
