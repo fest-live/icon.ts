@@ -1,3 +1,10 @@
+import {
+    isOPFSSupported,
+    getCachedVectorIcon,
+    cacheVectorIcon,
+    getCachedRasterIcon,
+    cacheRasterIcon,
+} from "./OPFSCache";
 
 //
 //import * as icons from "lucide";
@@ -175,40 +182,76 @@ export const loadImageElement = (url: string): Promise<HTMLImageElement> => {
     const resolvedUrl = resolveAssetUrl(url);
     if (!resolvedUrl) { return Promise.reject(new Error("Invalid icon URL")); }
     if (!imageElementCache.has(resolvedUrl)) {
-        const promise = new Promise<HTMLImageElement>((resolve, reject) => {
-            const img = new Image();
-            let settled = false;
-
-            // Timeout for image loading to prevent stuck preloading
-            const timeoutId = setTimeout(() => {
-                if (!settled) {
-                    settled = true;
-                    img.onload = null;
-                    img.onerror = null;
-                    reject(new Error(`Timeout loading icon: ${url}`));
+        const promise = (async (): Promise<HTMLImageElement> => {
+            // Try OPFS cache first for blob URL
+            let effectiveUrl = resolvedUrl;
+            if (isOPFSSupported()) {
+                try {
+                    const cachedUrl = await getCachedVectorIcon(resolvedUrl);
+                    if (cachedUrl) {
+                        effectiveUrl = cachedUrl;
+                    }
+                } catch {
+                    /* cache miss */
                 }
-            }, FETCH_TIMEOUT_MS);
+            }
 
-            try { img.decoding = "async"; } catch (_) { /* noop */ }
-            try { img.crossOrigin = "anonymous"; } catch (_) { /* noop */ }
+            return new Promise<HTMLImageElement>((resolve, reject) => {
+                const img = new Image();
+                let settled = false;
 
-            img.onload = () => {
-                if (settled) { return; }
-                settled = true;
-                clearTimeout(timeoutId);
-                resolve(img);
-            };
-            img.onerror = (_event) => {
-                if (settled) { return; }
-                settled = true;
-                clearTimeout(timeoutId);
-                reject(new Error(`Failed to load icon: ${url}`));
-            };
-            img.src = resolvedUrl;
-        }).then(async (img) => {
+                // Timeout for image loading to prevent stuck preloading
+                const timeoutId = setTimeout(() => {
+                    if (!settled) {
+                        settled = true;
+                        img.onload = null;
+                        img.onerror = null;
+                        reject(new Error(`Timeout loading icon: ${url}`));
+                    }
+                }, FETCH_TIMEOUT_MS);
+
+                try { img.decoding = "async"; } catch (_) { /* noop */ }
+                try { img.crossOrigin = "anonymous"; } catch (_) { /* noop */ }
+
+                img.onload = () => {
+                    if (settled) { return; }
+                    settled = true;
+                    clearTimeout(timeoutId);
+                    resolve(img);
+                };
+                img.onerror = (_event) => {
+                    if (settled) { return; }
+                    settled = true;
+                    clearTimeout(timeoutId);
+
+                    // If cached URL failed, try original URL
+                    if (effectiveUrl !== resolvedUrl) {
+                        const retryImg = new Image();
+                        try { retryImg.decoding = "async"; } catch (_) { /* noop */ }
+                        try { retryImg.crossOrigin = "anonymous"; } catch (_) { /* noop */ }
+                        retryImg.onload = () => resolve(retryImg);
+                        retryImg.onerror = () => reject(new Error(`Failed to load icon: ${url}`));
+                        retryImg.src = resolvedUrl;
+                        return;
+                    }
+                    reject(new Error(`Failed to load icon: ${url}`));
+                };
+                img.src = effectiveUrl;
+            });
+        })().then(async (img) => {
             if (typeof img.decode === "function") {
                 try { await img.decode(); } catch (_) { /* ignore decode errors */ }
             }
+
+            // Cache SVG to OPFS if loaded from network
+            if (isOPFSSupported() && img.src === resolvedUrl) {
+                // Fetch and cache in background
+                fetch(resolvedUrl)
+                    .then(r => r.blob())
+                    .then(blob => cacheVectorIcon(resolvedUrl, blob))
+                    .catch(() => { /* silent */ });
+            }
+
             return img;
         }).catch((error) => {
             // Remove from cache on failure to allow retry
@@ -249,9 +292,43 @@ export const canvasToImageUrl = async (canvas: OffscreenCanvas | HTMLCanvasEleme
     return htmlCanvas.toDataURL("image/png");
 };
 
-export const rasterizeSvgToMask = async (url: string, bucket: number): Promise<string> => {
-    const img = await loadImageElement(url);
+/**
+ * Converts canvas to blob for OPFS caching
+ */
+const canvasToBlob = async (canvas: OffscreenCanvas | HTMLCanvasElement): Promise<Blob | null> => {
+    try {
+        if ("convertToBlob" in canvas) {
+            return await (canvas as OffscreenCanvas).convertToBlob({ type: "image/png" });
+        }
+        const htmlCanvas = canvas as HTMLCanvasElement;
+        if (typeof htmlCanvas.toBlob === "function") {
+            return await new Promise<Blob | null>((resolve) => {
+                htmlCanvas.toBlob((blob) => resolve(blob), "image/png");
+            });
+        }
+    } catch {
+        /* noop */
+    }
+    return null;
+};
+
+export const rasterizeSvgToMask = async (url: string, bucket: number, cacheKey?: string): Promise<string> => {
     const size = Math.max(bucket, MIN_RASTER_SIZE);
+    const opfsCacheKey = cacheKey || url;
+
+    // Check OPFS cache first for raster version
+    if (isOPFSSupported()) {
+        try {
+            const cachedRaster = await getCachedRasterIcon(opfsCacheKey, size);
+            if (cachedRaster) {
+                return fallbackMaskValue(cachedRaster);
+            }
+        } catch {
+            /* cache miss, proceed with rasterization */
+        }
+    }
+
+    const img = await loadImageElement(url);
     const canvas = createCanvas(size);
     const context = canvas.getContext("2d") as CanvasRenderingContext2D;
     if (!context) { throw new Error("Unable to acquire 2d context"); }
@@ -272,6 +349,19 @@ export const rasterizeSvgToMask = async (url: string, bucket: number): Promise<s
     const offsetY = (size - drawHeight) / 2;
 
     context?.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+
+    // Cache raster to OPFS in background
+    if (isOPFSSupported()) {
+        canvasToBlob(canvas).then((blob) => {
+            if (blob) {
+                cacheRasterIcon(opfsCacheKey, size, blob).catch(() => {
+                    /* silent cache failure */
+                });
+            }
+        }).catch(() => {
+            /* silent */
+        });
+    }
 
     const rasterUrl = await canvasToImageUrl(canvas);
     return fallbackMaskValue(rasterUrl);
@@ -295,7 +385,7 @@ export const ensureMaskValue = (url: string, cacheKey: string | undefined, bucke
     const pending = findPendingPromise(cacheKeys);
     if (pending) { return pending; }
 
-    const promise = rasterizeSvgToMask(effectiveUrl, bucket)
+    const promise = rasterizeSvgToMask(effectiveUrl, bucket, cacheKey)
         .then((maskValue) => shareMaskValueAcrossKeys(maskValue, cacheKeys))
         .catch((error) => {
             const fallback = fallbackMaskValue(effectiveUrl);
@@ -379,13 +469,66 @@ export const isPathURL = (url: unknown): url is string => {
 };
 export const rasterizeSVG = (blob: Blob | string)=>{ return isPathURL(blob) ? resolveAssetUrl(blob) : URL.createObjectURL(blob); }
 
-// Internal loader with retry support
+/**
+ * Fetches SVG content from URL and caches it in OPFS
+ */
+const fetchAndCacheSvg = async (url: string): Promise<Blob> => {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`);
+    }
+    const blob = await response.blob();
+
+    // Cache in OPFS (non-blocking)
+    if (isOPFSSupported()) {
+        cacheVectorIcon(url, blob).catch(() => {
+            /* silent cache failure */
+        });
+    }
+
+    return blob;
+};
+
+// Internal loader with retry support and OPFS caching
 const loadAsImageInternal = async (name: any, creator?: (name: any) => any, attempt = 0): Promise<string> => {
-    if (isPathURL(name)) { return resolveAssetUrl(name); }
+    if (isPathURL(name)) {
+        const resolvedUrl = resolveAssetUrl(name);
+
+        // Check OPFS cache first for vector icons
+        if (isOPFSSupported()) {
+            try {
+                const cachedUrl = await getCachedVectorIcon(resolvedUrl);
+                if (cachedUrl) {
+                    return cachedUrl;
+                }
+            } catch {
+                /* cache miss, proceed with fetch */
+            }
+        }
+
+        // Fetch and cache
+        try {
+            const blob = await withTimeout(fetchAndCacheSvg(resolvedUrl), FETCH_TIMEOUT_MS);
+            return URL.createObjectURL(blob);
+        } catch (error) {
+            // On timeout, queue for retry
+            if (attempt < MAX_RETRIES && error instanceof Error && error.message === "Timeout") {
+                return new Promise((resolve, reject) => {
+                    retryQueue.push({ name, creator, resolve, reject, retries: attempt + 1 });
+                    scheduleRetryQueue();
+                });
+            }
+            // Fallback: return resolved URL directly (browser will fetch)
+            return resolvedUrl;
+        }
+    }
 
     const doLoad = async (): Promise<string> => {
         const element = await (creator ? creator?.(name) : name);
-        if (isPathURL(element)) { return element; }
+        if (isPathURL(element)) {
+            // Recurse to get OPFS caching for path URLs
+            return loadAsImageInternal(element, undefined, attempt);
+        }
         let file: any = name;
         if (element instanceof Blob || element instanceof File) { file = element; }
         else {
