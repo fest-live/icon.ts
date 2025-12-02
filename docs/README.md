@@ -1,8 +1,8 @@
-**@fest/icon v0.0.0**
+**@fest-lib/icon v0.0.0**
 
 ***
 
-# @fest/icon v0.0.0
+# @fest-lib/icon v0.0.0
 
 ## Classes
 

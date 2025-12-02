@@ -1,8 +1,8 @@
-[**@fest/icon v0.0.0**](../README.md)
+[**@fest-lib/icon v0.0.0**](../README.md)
 
 ***
 
-[@fest/icon](../README.md) / UIPhosphorIcon
+[@fest-lib/icon](../README.md) / UIPhosphorIcon
 
 # Class: UIPhosphorIcon
 
