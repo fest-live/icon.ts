@@ -343,7 +343,7 @@ export const ensureMaskValue = (url: string, cacheKey: string | undefined, bucke
     const inflight = inflightPromises.get(key);
     if (inflight) { return inflight; }
 
-    const promise = rasterizeSvgToMask(effectiveUrl, bucket, cacheKey)
+    const promise = loadAsImage(effectiveUrl, /*bucket, cacheKey*/)
         .catch((error) => {
             if (effectiveUrl && typeof console !== "undefined") {
                 console.warn?.("[ui-icon] Rasterization failed, using SVG mask", error);
@@ -516,7 +516,7 @@ const loadAsImageInternal = async (name: any, creator?: (name: any) => any, atte
 };
 
 export const loadAsImage = async (name: any, creator?: (name: any) => any): Promise<string> => {
-    if (isPathURL(name)) { return resolveAssetUrl(name); }
+    if (isPathURL(name)) { name = resolveAssetUrl(name) || name; }
     // @ts-ignore // !experimental `getOrInsert` feature!
     return iconMap.getOrInsertComputed(name, () => loadAsImageInternal(name, creator, 0));
 };
