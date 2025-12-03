@@ -10,7 +10,7 @@
 function preregisterIcons(icons): void;
 ```
 
-Defined in: [loader/CSSIconRegistry.ts:276](https://github.com/fest-live/icon.ts/blob/ddbe67f0182bf092b3f13354155ed37ddbdff151/src/loader/CSSIconRegistry.ts#L276)
+Defined in: [loader/CSSIconRegistry.ts:276](https://github.com/fest-live/icon.ts/blob/6b8b46a5655315a9f9ab4b934f887054c7eaf172/src/loader/CSSIconRegistry.ts#L276)
 
 Pre-registers common icon styles to reduce layout shifts
 Call this early in app initialization if you know which icons will be used

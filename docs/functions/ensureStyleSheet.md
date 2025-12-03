@@ -10,7 +10,7 @@
 function ensureStyleSheet(): CSSStyleSheet | null;
 ```
 
-Defined in: [loader/CSSIconRegistry.ts:30](https://github.com/fest-live/icon.ts/blob/ddbe67f0182bf092b3f13354155ed37ddbdff151/src/loader/CSSIconRegistry.ts#L30)
+Defined in: [loader/CSSIconRegistry.ts:30](https://github.com/fest-live/icon.ts/blob/6b8b46a5655315a9f9ab4b934f887054c7eaf172/src/loader/CSSIconRegistry.ts#L30)
 
 Gets or creates the shared icon stylesheet
 
