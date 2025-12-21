@@ -254,15 +254,16 @@ export class UIPhosphorIcon extends HTMLElement {
         const assetPath = `./assets/icons/${iconStyle}/${ICON}-${iconStyle}.svg`;
         const requestKey = `${iconStyle}:${ICON}`;
 
+        //
         this.#maskKeyBase = requestKey;
 
         //
         requestAnimationFrame(() => {
             if (this?.checkVisibility?.({
                 contentVisibilityAuto: true,
-                opacityProperty: false,
-                visibilityProperty: false,
-            })) {
+                opacityProperty: true,
+                visibilityProperty: true,
+            }) || !this.#currentIconUrl) {
                 loadAsImage(assetPath)
                     ?.then((url) => {
                         if (!url) { return; }
