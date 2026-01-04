@@ -157,11 +157,18 @@ export class UIPhosphorIcon extends HTMLElement {
             this.setAttribute("icon-style", this.#options.iconStyle);
         }
 
+        // Force load any pending icon immediately when connected
         const pendingIcon = this.#pendingIconName ?? this.icon;
+        console.log(`[ui-icon] Element connected, pending icon: ${pendingIcon}, current icon: ${this.icon}`);
+
         if (pendingIcon) {
+            console.log(`[ui-icon] Loading pending icon: ${pendingIcon}`);
             this.updateIcon(pendingIcon);
+        } else if (this.icon) {
+            console.log(`[ui-icon] Loading current icon: ${this.icon}`);
+            this.updateIcon(this.icon);
         } else {
-            this.updateIcon();
+            console.log(`[ui-icon] No icon to load`);
         }
     }
 
@@ -251,7 +258,10 @@ export class UIPhosphorIcon extends HTMLElement {
 
         const iconStyle = (this.iconStyle ?? "duotone")?.trim?.()?.toLowerCase?.();
         const ICON = camelToKebab(nextIcon);
-        const assetPath = `./assets/icons/${iconStyle}/${ICON}-${iconStyle}.svg`;
+        // Use CDN for Phosphor icons (npm package assets; stable paths)
+        // Example:
+        // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/duotone/folder-open-duotone.svg
+        const cdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${ICON}-${iconStyle}.svg`;
         const requestKey = `${iconStyle}:${ICON}`;
 
         //
@@ -259,15 +269,39 @@ export class UIPhosphorIcon extends HTMLElement {
 
         //
         requestAnimationFrame(() => {
-            if (this?.checkVisibility?.({
-                contentVisibilityAuto: true,
-                opacityProperty: true,
-                visibilityProperty: true,
-            }) || !this.#currentIconUrl) {
-                loadAsImage(assetPath)
+            // Always attempt to load if we don't have a current icon URL, or if we're intersecting
+            // The checkVisibility call can prevent loading even when we should load
+            const shouldLoad = !this.#currentIconUrl || this.#isIntersecting ||
+                (this?.checkVisibility?.({
+                    contentVisibilityAuto: true,
+                    opacityProperty: true,
+                    visibilityProperty: true,
+                }) ?? true); // Default to true if checkVisibility is not available
+
+            console.log(`[ui-icon] Checking load conditions for ${requestKey}:`, {
+                hasCurrentUrl: !!this.#currentIconUrl,
+                isIntersecting: this.#isIntersecting,
+                checkVisibility: this?.checkVisibility?.({
+                    contentVisibilityAuto: true,
+                    opacityProperty: true,
+                    visibilityProperty: true,
+                }),
+                shouldLoad
+            });
+
+            if (shouldLoad) {
+                // Load from CDN
+                loadAsImage(cdnPath)
                     ?.then((url) => {
-                        if (!url) { return; }
-                        if (this.#maskKeyBase !== requestKey) { return; } // игнор, если уже запросили новую иконку
+                        console.log(`[ui-icon] Loaded icon ${requestKey} from ${cdnPath}:`, url);
+                        if (!url) {
+                            console.warn(`[ui-icon] No URL returned for ${requestKey}`);
+                            return;
+                        }
+                        if (this.#maskKeyBase !== requestKey) {
+                            console.log(`[ui-icon] Ignoring outdated request for ${requestKey}`);
+                            return;
+                        }
                         this.#currentIconUrl = url;
                         this.#retryAttempt = 0; // Reset retry counter on success
                         this.#queueMaskUpdate();
@@ -283,7 +317,7 @@ export class UIPhosphorIcon extends HTMLElement {
                                 }
                             }, UIPhosphorIcon.#RETRY_DELAY_MS * this.#retryAttempt);
                         } else if (typeof console !== "undefined") {
-                            console.warn?.("[ui-icon] Failed to load icon", assetPath, error);
+                            console.error?.("[ui-icon] Failed to load icon", cdnPath, error);
                         }
                     });
             }
@@ -293,28 +327,43 @@ export class UIPhosphorIcon extends HTMLElement {
     }
 
     #setupVisibilityObserver() {
+        console.log(`[ui-icon] Setting up visibility observer`);
+
         if (typeof IntersectionObserver === "undefined") {
+            console.log(`[ui-icon] IntersectionObserver not available, setting intersecting to true`);
             this.#isIntersecting = true;
             return;
         }
 
-        if (this.#intersectionObserver) { return; }
+        if (this.#intersectionObserver) {
+            console.log(`[ui-icon] Visibility observer already exists`);
+            return;
+        }
 
+        console.log(`[ui-icon] Creating new IntersectionObserver`);
         this.#intersectionObserver = new IntersectionObserver((entries) => {
             const isIntersecting = entries.some((entry) => entry.isIntersecting);
+            console.log(`[ui-icon] IntersectionObserver callback: isIntersecting=${isIntersecting}, was=${this.#isIntersecting}`);
+
             if (isIntersecting !== this.#isIntersecting) {
                 this.#isIntersecting = isIntersecting;
                 if (isIntersecting) {
+                    console.log(`[ui-icon] Element became visible, updating icon`);
                     this.updateIcon(this.#pendingIconName ?? this.icon);
                 }
             }
         }, { rootMargin: "100px" });
 
+        console.log(`[ui-icon] Starting observation`);
         this.#intersectionObserver.observe(this);
 
         // Handle content-visibility
         // @ts-ignore
         this.addEventListener("contentvisibilityautostatechange", this.#handleContentVisibility);
+
+        // Initially assume intersecting to allow loading
+        console.log(`[ui-icon] Setting initial intersecting state to true`);
+        this.#isIntersecting = true;
     }
 
     #teardownVisibilityObserver() {
@@ -437,10 +486,12 @@ export class UIPhosphorIcon extends HTMLElement {
             // Generate mask value and register CSS rule
             ensureMaskValue(url, this.#maskKeyBase, bucket)
                 .then((maskValue) => {
+                    console.log(`[ui-icon] Got mask value for ${iconName}:${iconStyle}:`, maskValue);
 
                     // Register the icon in CSS registry with attribute-based selector
                     // The rule: ui-icon[icon="name"][icon-style="style"] { --icon-image: ... }
                     registerIconRule(iconName, iconStyle, maskValue, bucket);
+                    console.log(`[ui-icon] Registered CSS rule for ${iconName}:${iconStyle}`);
 
                     // Keep local ref for fallback/debugging
                     if (this.#maskRef.value !== maskValue) {

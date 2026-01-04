@@ -10,7 +10,7 @@
 function isOPFSSupported(): boolean;
 ```
 
-Defined in: [loader/OPFSCache.ts:30](https://github.com/fest-live/icon.ts/blob/6b8b46a5655315a9f9ab4b934f887054c7eaf172/src/loader/OPFSCache.ts#L30)
+Defined in: [loader/OPFSCache.ts:30](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/OPFSCache.ts#L30)
 
 Checks if OPFS is supported in current environment
 

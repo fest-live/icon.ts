@@ -435,53 +435,116 @@ export const rasterizeSVG = (blob: Blob | string)=>{ return isPathURL(blob) ? re
  * Fetches SVG content from URL and caches it in OPFS
  */
 const fetchAndCacheSvg = async (url: string): Promise<Blob> => {
+    console.log(`[ui-icon] Fetching SVG from: ${url}`);
     const response = await fetch(url);
     if (!response.ok) {
         throw new Error(`Failed to fetch: ${response.status}`);
     }
     const blob = await response.blob();
-
-    // Cache in OPFS (non-blocking)
-    if (isOPFSSupported()) {
-        cacheVectorIcon(url, blob).catch(() => {
-            /* silent cache failure */
-        });
-    }
-
+    console.log(`[ui-icon] Fetched blob of size: ${blob.size}`);
     return blob;
 };
 
-// Internal loader with retry support and OPFS caching
+const toSvgDataUrl = (svgText: string): string => {
+    // base64 encode utf-8
+    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
+};
+
+const rewritePhosphorUrl = (url: string): string => {
+    // Legacy (broken) format used previously:
+    // - https://cdn.jsdelivr.net/gh/phosphor-icons/phosphor-icons/src/{style}/{name}.svg
+    //
+    // Correct/stable format (npm package assets):
+    // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/{style}/{name}-{style}.svg
+    //
+    // Keep this rewrite conservative: only rewrite known phosphor CDN patterns.
+    try {
+        if (url.includes("cdn.jsdelivr.net/gh/phosphor-icons/phosphor-icons/")) {
+            const u = new URL(url);
+            const parts = u.pathname.split("/").filter(Boolean);
+            const srcIndex = parts.indexOf("src");
+            if (srcIndex >= 0 && parts.length >= srcIndex + 3) {
+                const style = parts[srcIndex + 1];
+                const file = parts[srcIndex + 2] ?? "";
+                const name = file.replace(/\.svg$/i, "");
+                if (style && name) {
+                    const rewritten = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${style}/${name}-${style}.svg`;
+                    return rewritten;
+                }
+            }
+        }
+    } catch {
+        /* noop */
+    }
+    return url;
+};
+
+const isClientErrorStatus = (error: unknown): boolean => {
+    if (!(error instanceof Error)) { return false; }
+    return /Failed to fetch:\s*4\d\d\b/.test(error.message);
+};
+
+// Internal loader with retry support
 const loadAsImageInternal = async (name: any, creator?: (name: any) => any, attempt = 0): Promise<string> => {
     if (isPathURL(name)) {
         const resolvedUrl = resolveAssetUrl(name);
 
-        // Check OPFS cache first for vector icons
-        if (isOPFSSupported()) {
-            try {
-                const cachedUrl = await getCachedVectorIcon(resolvedUrl);
-                if (cachedUrl) {
-                    return cachedUrl;
-                }
-            } catch {
-                /* cache miss, proceed with fetch */
-            }
+        // Skip if this is already a data URL (from cache or previous processing)
+        if (resolvedUrl.startsWith("data:")) {
+            console.log(`[ui-icon] Already a data URL, returning as-is`);
+            return resolvedUrl;
         }
 
-        // Fetch and cache
+        const effectiveUrl = rewritePhosphorUrl(resolvedUrl);
+        if (effectiveUrl !== resolvedUrl) {
+            console.log(`[ui-icon] Rewrote phosphor URL: ${resolvedUrl} -> ${effectiveUrl}`);
+        }
+
         try {
-            const blob = await withTimeout(fetchAndCacheSvg(resolvedUrl), FETCH_TIMEOUT_MS);
-            return URL.createObjectURL(blob);
+            // Prefer OPFS cached blob URL (if available), fall back to network.
+            const candidateUrls: string[] = [];
+            if (isOPFSSupported()) {
+                try {
+                    const cached = await getCachedVectorIcon(effectiveUrl);
+                    if (cached) { candidateUrls.push(cached); }
+                } catch {
+                    /* cache miss */
+                }
+            }
+            candidateUrls.push(effectiveUrl);
+
+            let lastError: unknown;
+            for (const url of candidateUrls) {
+                try {
+                    const blob = await withTimeout(fetchAndCacheSvg(url), FETCH_TIMEOUT_MS);
+
+                    // Cache into OPFS (store under the effective URL key)
+                    if (isOPFSSupported() && url === effectiveUrl) {
+                        cacheVectorIcon(effectiveUrl, blob).catch(() => { /* silent */ });
+                    }
+
+                    const svgText = await blob.text();
+                    return toSvgDataUrl(svgText);
+                } catch (e) {
+                    lastError = e;
+                }
+            }
+            throw lastError ?? new Error("Failed to load SVG");
         } catch (error) {
-            // On timeout, queue for retry
-            if (attempt < MAX_RETRIES && error instanceof Error && error.message === "Timeout") {
+            console.warn(`[ui-icon] Failed to load icon: ${effectiveUrl}`, error);
+
+            // Don't spam retries on 404/4xx: it's a deterministic failure.
+            if (attempt < MAX_RETRIES && !isClientErrorStatus(error)) {
+                console.log(`[ui-icon] Queueing retry ${attempt + 1} for ${effectiveUrl}`);
                 return new Promise((resolve, reject) => {
                     retryQueue.push({ name, creator, resolve, reject, retries: attempt + 1 });
                     scheduleRetryQueue();
                 });
             }
-            // Fallback: return resolved URL directly (browser will fetch)
-            return resolvedUrl;
+
+            // Final fallback: return a simple placeholder SVG
+            console.warn(`[ui-icon] All loading methods failed, using placeholder for: ${effectiveUrl}`);
+            return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDMTMuMSAyIDE0IDIuOSAxNCA0VjE2QzE0IDE3LjEgMTMuMSAxOCA5LjUgMThIMTUuNUMxNi45IDE4IDE4IDE3LjEgMTggMTZWNFY0QzE4IDIuOSAxNi45IDIgMTUuNSAySDEyWk0xMiAwaDE1LjVDMTguNiAwIDIwIDEuNCAyMCA0VjE2QzIwIDE4LjYgMTguNiAyMCAxNS41IDIwSDguNUM1LjQgMjAgNCAxOC42IDQgMTZWNFY0QzQgMS40IDUuNCAwIDguNSAwSDEyWk04LjUgNFYxNkgyMEw4LjUgNFoiIGZpbGw9ImN1cnJlbnRDb2xvciIvPgo8L3N2Zz4K";
         }
     }
 

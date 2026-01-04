@@ -40,7 +40,7 @@
             -webkit-tap-highlight-color: transparent;
             aspect-ratio: 1 / 1;
             overflow: visible;
-            color: var(--icon-color, currentColor);
+            color: var(--icon-color, currentColor) !important;
             grid-template-columns: minmax(0px, 1fr);
             grid-template-rows: minmax(0px, 1fr);
             object-fit: contain;
@@ -54,6 +54,9 @@
         }
 
         &::before {
+            opacity: 1 !important;
+            filter: none !important;
+            backdrop-filter: none !important;
             content: "";
             display: flex;
             inline-size: stretch;
@@ -62,13 +65,13 @@
             content-visibility: visible;
             background-color: var(--icon-color, currentColor) !important;
             mask-image: var(--icon-image, linear-gradient(#0000, #0000)) !important;
+            color: var(--icon-color, currentColor) !important;
             mask-repeat: no-repeat;
             mask-origin: content-box;
             mask-clip: content-box;
             mask-position: center;
             mask-size: contain;
             mask-type: alpha;
-            transition: background-color 0.18s ease;
             object-fit: contain;
             object-position: center;
             line-height: 0;

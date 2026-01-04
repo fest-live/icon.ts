@@ -94,7 +94,8 @@ const makeSelector = (iconName: string, iconStyle: string): string => {
     const escapedName = CSS.escape(iconName);
     const escapedStyle = CSS.escape(iconStyle) || "duotone";
 
-    return `ui-icon[icon="${escapedName}"][icon-style="${escapedStyle}"], :host(ui-icon[icon="${escapedName}"][icon-style="${escapedStyle}"])`;
+    // Match both class selector (.ui-icon) and :host selector for shadow DOM
+    return `.ui-icon[icon="${escapedName}"][icon-style="${escapedStyle}"], :host(.ui-icon[icon="${escapedName}"][icon-style="${escapedStyle}"])`;
 };
 
 /**

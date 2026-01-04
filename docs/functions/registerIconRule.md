@@ -14,7 +14,7 @@ function registerIconRule(
    bucket): void;
 ```
 
-Defined in: [loader/CSSIconRegistry.ts:145](https://github.com/fest-live/icon.ts/blob/6b8b46a5655315a9f9ab4b934f887054c7eaf172/src/loader/CSSIconRegistry.ts#L145)
+Defined in: [loader/CSSIconRegistry.ts:146](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/CSSIconRegistry.ts#L146)
 
 Registers an icon rule in the stylesheet
 Rules are batched and deduplicated automatically

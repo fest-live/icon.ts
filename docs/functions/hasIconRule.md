@@ -13,7 +13,7 @@ function hasIconRule(
    bucket): boolean;
 ```
 
-Defined in: [loader/CSSIconRegistry.ts:190](https://github.com/fest-live/icon.ts/blob/6b8b46a5655315a9f9ab4b934f887054c7eaf172/src/loader/CSSIconRegistry.ts#L190)
+Defined in: [loader/CSSIconRegistry.ts:191](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/CSSIconRegistry.ts#L191)
 
 Checks if an icon rule is already registered
 
