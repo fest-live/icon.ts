@@ -21,8 +21,8 @@
         & {
             display: inline-grid !important;
             background-color: transparent !important;
-            min-block-size: min(var(--icon-size, fit-content), 100%);
-            min-inline-size: min(var(--icon-size, fit-content), 100%);
+            min-block-size: min(var(--icon-size, 1rem), 100%);
+            min-inline-size: min(var(--icon-size, 1rem), 100%);
             block-size: stretch;
             inline-size: max-content;
             max-inline-size: stretch;
@@ -38,7 +38,7 @@
             user-select: none;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
-            aspect-ratio: 1 / 1;
+            aspect-ratio: 1 / 1 !important;
             overflow: visible;
             color: var(--icon-color, currentColor) !important;
             grid-template-columns: minmax(0px, 1fr);
@@ -61,7 +61,7 @@
             display: flex;
             inline-size: stretch;
             block-size: stretch;
-            aspect-ratio: 1 / 1;
+            aspect-ratio: 1 / 1 !important;
             content-visibility: visible;
             background-color: var(--icon-color, currentColor) !important;
             mask-image: var(--icon-image, linear-gradient(#0000, #0000)) !important;

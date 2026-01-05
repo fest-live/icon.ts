@@ -161,21 +161,34 @@ export const loadImageElement = (url: string): Promise<HTMLImageElement> => {
                 const timeoutId = setTimeout(() => {
                     if (!settled) {
                         settled = true;
-                        img.onload = null;
-                        img.onerror = null;
+                        img.onload = img.onerror = null;
                         reject(new Error(`Timeout loading icon: ${url}`));
                     }
                 }, FETCH_TIMEOUT_MS);
 
+                // Configure image properties
                 try { img.decoding = "async"; } catch (_) { /* noop */ }
                 try { img.crossOrigin = "anonymous"; } catch (_) { /* noop */ }
+
+                // Prevent image from being displayed if it accidentally gets added to DOM
+                img.style.display = 'none';
+                img.style.position = 'absolute';
+                img.style.visibility = 'hidden';
 
                 img.onload = () => {
                     if (settled) { return; }
                     settled = true;
                     clearTimeout(timeoutId);
+
+                    // Validate loaded image
+                    if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+                        reject(new Error(`Invalid image dimensions for: ${url}`));
+                        return;
+                    }
+
                     resolve(img);
                 };
+
                 img.onerror = (_event) => {
                     if (settled) { return; }
                     settled = true;
@@ -186,13 +199,22 @@ export const loadImageElement = (url: string): Promise<HTMLImageElement> => {
                         const retryImg = new Image();
                         try { retryImg.decoding = "async"; } catch (_) { /* noop */ }
                         try { retryImg.crossOrigin = "anonymous"; } catch (_) { /* noop */ }
-                        retryImg.onload = () => resolve(retryImg);
+                        retryImg.style.display = retryImg.style.position = retryImg.style.visibility = 'none';
+
+                        retryImg.onload = () => {
+                            if (retryImg.naturalWidth === 0 || retryImg.naturalHeight === 0) {
+                                reject(new Error(`Invalid retry image dimensions for: ${url}`));
+                                return;
+                            }
+                            resolve(retryImg);
+                        };
                         retryImg.onerror = () => reject(new Error(`Failed to load icon: ${url}`));
                         retryImg.src = resolvedUrl;
                         return;
                     }
                     reject(new Error(`Failed to load icon: ${url}`));
                 };
+
                 img.src = effectiveUrl;
             });
         })().then(async (img) => {
@@ -280,43 +302,66 @@ export const rasterizeSvgToMask = async (url: string, bucket: number, cacheKey?:
             if (cachedRaster) {
                 return fallbackMaskValue(cachedRaster);
             }
-        } catch {
-            /* cache miss, proceed with rasterization */
+        } catch (error) {
+            console.warn('[ui-icon] OPFS cache read failed:', error);
         }
     }
 
     const img = await loadImageElement(url);
     const canvas = createCanvas(size);
-    const context = canvas.getContext("2d") as CanvasRenderingContext2D;
-    if (!context) { throw new Error("Unable to acquire 2d context"); }
-    context?.clearRect?.(0, 0, size, size);
-    context.imageSmoothingEnabled = true;
-    if ("imageSmoothingQuality" in context) {
-        try { context.imageSmoothingQuality = "high"; } catch (_) { /* noop */ }
+    const context = canvas.getContext("2d", {
+        alpha: true,
+        desynchronized: true,
+        willReadFrequently: false
+    }) as CanvasRenderingContext2D;
+
+    if (!context) {
+        throw new Error("Unable to acquire 2d context for rasterization");
     }
+
+    // Configure canvas for high-quality rendering
+    context.clearRect(0, 0, size, size);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.globalCompositeOperation = 'source-over';
 
     const naturalWidth = img.naturalWidth || img.width || size;
     const naturalHeight = img.naturalHeight || img.height || size;
-    const safeWidth = naturalWidth || size;
-    const safeHeight = naturalHeight || size;
-    const scale = Math.min(size / safeWidth, size / safeHeight) || 1;
-    const drawWidth = safeWidth * scale;
-    const drawHeight = safeHeight * scale;
-    const offsetX = (size - drawWidth) / 2;
-    const offsetY = (size - drawHeight) / 2;
 
-    context?.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+    // Ensure we have valid dimensions
+    const safeWidth = Math.max(1, naturalWidth);
+    const safeHeight = Math.max(1, naturalHeight);
 
-    // Cache raster to OPFS in background
+    // Calculate scale to fit within canvas while maintaining aspect ratio
+    const scale = Math.min(size / safeWidth, size / safeHeight);
+    const drawWidth = Math.max(1, Math.floor(safeWidth * scale));
+    const drawHeight = Math.max(1, Math.floor(safeHeight * scale));
+
+    // Center the image on the canvas
+    const offsetX = Math.floor((size - drawWidth) / 2);
+    const offsetY = Math.floor((size - drawHeight) / 2);
+
+    // Clear canvas with transparent background
+    context.clearRect(0, 0, size, size);
+
+    // Draw the image with proper scaling and error handling
+    try {
+        context.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+    } catch (error) {
+        console.warn('[ui-icon] Failed to draw image on canvas:', error);
+        // Fallback: create a simple colored rectangle as placeholder
+        context.fillStyle = 'rgba(128, 128, 128, 0.5)';
+        context.fillRect(offsetX, offsetY, drawWidth, drawHeight);
+    }
+
+    // Cache raster to OPFS in background with error handling
     if (isOPFSSupported()) {
         canvasToBlob(canvas).then((blob) => {
-            if (blob) {
-                cacheRasterIcon(opfsCacheKey, size, blob).catch(() => {
-                    /* silent cache failure */
-                });
+            if (blob && blob.size > 0) {
+                return cacheRasterIcon(opfsCacheKey, size, blob);
             }
-        }).catch(() => {
-            /* silent */
+        }).catch((error) => {
+            console.warn('[ui-icon] OPFS cache write failed:', error);
         });
     }
 
@@ -446,8 +491,22 @@ const fetchAndCacheSvg = async (url: string): Promise<Blob> => {
 };
 
 const toSvgDataUrl = (svgText: string): string => {
-    // base64 encode utf-8
-    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
+    // Ensure proper UTF-8 encoding for SVG data URLs
+    try {
+        // Use TextEncoder for proper UTF-8 handling
+        const encoder = new TextEncoder();
+        const utf8Bytes = encoder.encode(svgText);
+        const binaryString = Array.from(utf8Bytes, byte => String.fromCharCode(byte)).join('');
+        return `data:image/svg+xml;base64,${btoa(binaryString)}`;
+    } catch {
+        // Fallback to the original method if TextEncoder fails
+        try {
+            return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
+        } catch {
+            // Final fallback: return SVG as-is without base64 encoding
+            return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
+        }
+    }
 };
 
 const rewritePhosphorUrl = (url: string): string => {
@@ -458,24 +517,38 @@ const rewritePhosphorUrl = (url: string): string => {
     // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/{style}/{name}-{style}.svg
     //
     // Keep this rewrite conservative: only rewrite known phosphor CDN patterns.
+    if (!url || typeof url !== 'string') return url;
+
     try {
-        if (url.includes("cdn.jsdelivr.net/gh/phosphor-icons/phosphor-icons/")) {
-            const u = new URL(url);
-            const parts = u.pathname.split("/").filter(Boolean);
-            const srcIndex = parts.indexOf("src");
-            if (srcIndex >= 0 && parts.length >= srcIndex + 3) {
-                const style = parts[srcIndex + 1];
-                const file = parts[srcIndex + 2] ?? "";
-                const name = file.replace(/\.svg$/i, "");
-                if (style && name) {
-                    const rewritten = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${style}/${name}-${style}.svg`;
-                    return rewritten;
+        const urlObj = new URL(url);
+
+        // Only rewrite GitHub phosphor URLs
+        if (urlObj.hostname === 'cdn.jsdelivr.net' &&
+            urlObj.pathname.startsWith('/gh/phosphor-icons/phosphor-icons/')) {
+
+            const pathParts = urlObj.pathname.split('/').filter(Boolean);
+            const srcIndex = pathParts.indexOf('src');
+
+            if (srcIndex >= 0 && pathParts.length >= srcIndex + 3) {
+                const style = pathParts[srcIndex + 1];
+                const fileName = pathParts[srcIndex + 2];
+
+                if (style && fileName && fileName.endsWith('.svg')) {
+                    const iconName = fileName.replace(/\.svg$/i, '');
+
+                    // Validate style and icon name
+                    const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
+                    if (validStyles.includes(style) && iconName && /^[a-z0-9-]+$/.test(iconName)) {
+                        return `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${style}/${iconName}-${style}.svg`;
+                    }
                 }
             }
         }
-    } catch {
-        /* noop */
+    } catch (error) {
+        // Invalid URL, return as-is
+        console.warn('[ui-icon] Invalid URL for phosphor rewrite:', url, error);
     }
+
     return url;
 };
 

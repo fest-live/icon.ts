@@ -90,9 +90,17 @@ const createImageSetCSS = (
  * Uses attribute selectors for icon name and style
  */
 const makeSelector = (iconName: string, iconStyle: string): string => {
+    // Validate and sanitize inputs
+    const safeName = (iconName || '').trim();
+    const safeStyle = (iconStyle || 'duotone').trim().toLowerCase();
+
+    if (!safeName) {
+        return ''; // Invalid selector
+    }
+
     // Escape special characters in attribute values
-    const escapedName = CSS.escape(iconName);
-    const escapedStyle = CSS.escape(iconStyle) || "duotone";
+    const escapedName = CSS.escape(safeName);
+    const escapedStyle = CSS.escape(safeStyle);
 
     // Match both class selector (.ui-icon) and :host selector for shadow DOM
     return `.ui-icon[icon="${escapedName}"][icon-style="${escapedStyle}"], :host(.ui-icon[icon="${escapedName}"][icon-style="${escapedStyle}"])`;

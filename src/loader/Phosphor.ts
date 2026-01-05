@@ -210,7 +210,7 @@ export class UIPhosphorIcon extends HTMLElement {
             }
             case "size": {
                 if (newValue) {
-                    this.style.setProperty("--icon-size", newValue);
+                    this.style.setProperty("--icon-size", (typeof newValue === "number" || /^\d+$/.test(newValue)) ? `${newValue}px` : newValue);
                 } else {
                     this.style.removeProperty("--icon-size");
                 }
@@ -223,7 +223,7 @@ export class UIPhosphorIcon extends HTMLElement {
                 if (newValue == null || newValue === "") {
                     this.style.removeProperty("width");
                 } else {
-                    const value = /^\d+$/.test(newValue) ? `${newValue}px` : newValue;
+                    const value = (typeof newValue === "number" || /^\d+$/.test(newValue)) ? `${newValue}px` : newValue;
                     this.style.width = value;
                 }
                 if (this.isConnected) {
@@ -256,46 +256,51 @@ export class UIPhosphorIcon extends HTMLElement {
 
         if (!nextIcon) { return this; }
 
-        const iconStyle = (this.iconStyle ?? "duotone")?.trim?.()?.toLowerCase?.();
+        let iconStyle = (this.iconStyle ?? "duotone")?.trim?.()?.toLowerCase?.();
         const ICON = camelToKebab(nextIcon);
         // Use CDN for Phosphor icons (npm package assets; stable paths)
         // Example:
         // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/duotone/folder-open-duotone.svg
+        // Validate icon name to prevent invalid requests
+        if (!ICON || !/^[a-z0-9-]+$/.test(ICON)) {
+            console.warn(`[ui-icon] Invalid icon name: ${ICON}`);
+            return this;
+        }
+
+        // Validate icon style
+        const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
+        if (!validStyles.includes(iconStyle)) {
+            console.warn(`[ui-icon] Invalid icon style: ${iconStyle}, defaulting to 'duotone'`);
+            iconStyle = 'duotone';
+        }
+
         const cdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${ICON}-${iconStyle}.svg`;
         const requestKey = `${iconStyle}:${ICON}`;
 
-        //
         this.#maskKeyBase = requestKey;
 
-        //
         requestAnimationFrame(() => {
             // Always attempt to load if we don't have a current icon URL, or if we're intersecting
-            // The checkVisibility call can prevent loading even when we should load
             const shouldLoad = !this.#currentIconUrl || this.#isIntersecting ||
                 (this?.checkVisibility?.({
                     contentVisibilityAuto: true,
                     opacityProperty: true,
                     visibilityProperty: true,
-                }) ?? true); // Default to true if checkVisibility is not available
+                }) ?? true);
 
             console.log(`[ui-icon] Checking load conditions for ${requestKey}:`, {
                 hasCurrentUrl: !!this.#currentIconUrl,
                 isIntersecting: this.#isIntersecting,
-                checkVisibility: this?.checkVisibility?.({
-                    contentVisibilityAuto: true,
-                    opacityProperty: true,
-                    visibilityProperty: true,
-                }),
                 shouldLoad
             });
 
             if (shouldLoad) {
-                // Load from CDN
+                // Load from CDN with validation
                 loadAsImage(cdnPath)
-                    ?.then((url) => {
+                    .then((url) => {
                         console.log(`[ui-icon] Loaded icon ${requestKey} from ${cdnPath}:`, url);
-                        if (!url) {
-                            console.warn(`[ui-icon] No URL returned for ${requestKey}`);
+                        if (!url || typeof url !== 'string') {
+                            console.warn(`[ui-icon] Invalid URL returned for ${requestKey}:`, url);
                             return;
                         }
                         if (this.#maskKeyBase !== requestKey) {
@@ -306,7 +311,7 @@ export class UIPhosphorIcon extends HTMLElement {
                         this.#retryAttempt = 0; // Reset retry counter on success
                         this.#queueMaskUpdate();
                     })
-                    ?.catch((error) => {
+                    .catch((error) => {
                         // Handle timeout - queue for delayed retry
                         const isTimeout = error instanceof Error && error.message.includes("Timeout");
                         if (isTimeout && this.#retryAttempt < UIPhosphorIcon.#MAX_ICON_RETRIES && this.isConnected) {
@@ -413,7 +418,7 @@ export class UIPhosphorIcon extends HTMLElement {
 
         const sizeAttr = this.getAttribute("size");
         if (sizeAttr) {
-            this.style.setProperty("--icon-size", sizeAttr);
+            this.style.setProperty("--icon-size", (typeof sizeAttr === "number" || /^\d+$/.test(sizeAttr)) ? `${sizeAttr}px` : sizeAttr);
         }
 
         // Note: --icon-image is now set via CSS rules with attribute selectors
