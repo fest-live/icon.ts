@@ -6,11 +6,13 @@
  * - Rasterized mask images (reduces canvas operations)
  */
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2; // Increment to invalidate old caches
 const ROOT_DIR_NAME = "icon-cache";
 const VECTOR_DIR = "vector";
 const RASTER_DIR = "raster";
 const META_FILE = ".cache-meta.json";
+const MAX_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const MAX_CACHE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 
 type CacheMeta = {
     version: number;
@@ -72,8 +74,27 @@ export const initOPFSCache = async (): Promise<boolean> => {
 
             // Check cache version and clear if outdated
             const meta = await readCacheMeta();
+            const now = Date.now();
+
             if (meta && meta.version !== CACHE_VERSION) {
+                if (typeof console !== "undefined") {
+                    console.log?.("[icon-cache] Cache version mismatch, clearing cache");
+                }
                 await clearAllCache();
+            } else if (meta && (now - meta.lastAccess) > MAX_CACHE_AGE_MS) {
+                if (typeof console !== "undefined") {
+                    console.log?.("[icon-cache] Cache expired, clearing cache");
+                }
+                await clearAllCache();
+            } else {
+                // Check cache size and clean up if too large
+                const stats = await getCacheStats();
+                if (stats && stats.totalSize > MAX_CACHE_SIZE_BYTES) {
+                    if (typeof console !== "undefined") {
+                        console.log?.("[icon-cache] Cache size exceeded, clearing cache");
+                    }
+                    await clearAllCache();
+                }
             }
 
             // Create/get subdirectories
@@ -306,7 +327,7 @@ export const clearAllCache = async (): Promise<void> => {
 
     try {
         // Remove subdirectories recursively
-        for await (const [name] of rootHandle!.entries()) {
+        for await (const [name] of (rootHandle as any).entries()) {
             if (name !== META_FILE) {
                 await rootHandle!.removeEntry(name, { recursive: true });
             }
@@ -344,7 +365,7 @@ export const getCacheStats = async (): Promise<{
         let rasterCount = 0;
         let totalSize = 0;
 
-        for await (const [, handle] of vectorDirHandle!.entries()) {
+        for await (const [, handle] of (vectorDirHandle as any).entries()) {
             if (handle.kind === "file") {
                 vectorCount++;
                 const file = await (handle as FileSystemFileHandle).getFile();
@@ -352,7 +373,7 @@ export const getCacheStats = async (): Promise<{
             }
         }
 
-        for await (const [, handle] of rasterDirHandle!.entries()) {
+        for await (const [, handle] of (rasterDirHandle as any).entries()) {
             if (handle.kind === "file") {
                 rasterCount++;
                 const file = await (handle as FileSystemFileHandle).getFile();
@@ -367,10 +388,86 @@ export const getCacheStats = async (): Promise<{
 };
 
 /**
+ * Validates and cleans up corrupted cache entries
+ */
+export const validateAndCleanCache = async (): Promise<void> => {
+    if (!vectorDirHandle || !rasterDirHandle) {
+        const ready = await initOPFSCache();
+        if (!ready) return;
+    }
+
+    const corruptedKeys: string[] = [];
+
+    try {
+        // Check vector icons
+        for await (const [name, handle] of (vectorDirHandle as any).entries()) {
+            if (handle.kind === "file" && name.endsWith('.svg')) {
+                try {
+                    const file = await (handle as FileSystemFileHandle).getFile();
+                    // Basic validation - check if file has content and starts with SVG tag
+                    if (file.size === 0) {
+                        corruptedKeys.push(`vector:${name}`);
+                        continue;
+                    }
+
+                    const text = await file.text();
+                    if (!text.trim().startsWith('<svg')) {
+                        corruptedKeys.push(`vector:${name}`);
+                    }
+                } catch {
+                    corruptedKeys.push(`vector:${name}`);
+                }
+            }
+        }
+
+        // Check raster icons
+        for await (const [name, handle] of (rasterDirHandle as any).entries()) {
+            if (handle.kind === "file" && (name.endsWith('.png') || name.endsWith('.webp'))) {
+                try {
+                    const file = await (handle as FileSystemFileHandle).getFile();
+                    if (file.size === 0) {
+                        corruptedKeys.push(`raster:${name}`);
+                    }
+                } catch {
+                    corruptedKeys.push(`raster:${name}`);
+                }
+            }
+        }
+
+        // Remove corrupted entries
+        for (const key of corruptedKeys) {
+            try {
+                const [type, filename] = key.split(':');
+                if (type === 'vector' && vectorDirHandle) {
+                    await vectorDirHandle.removeEntry(filename);
+                } else if (type === 'raster' && rasterDirHandle) {
+                    await rasterDirHandle.removeEntry(filename);
+                }
+            } catch {
+                /* ignore removal errors */
+            }
+        }
+
+        if (corruptedKeys.length > 0 && typeof console !== "undefined") {
+            console.log?.(`[icon-cache] Cleaned up ${corruptedKeys.length} corrupted cache entries`);
+        }
+    } catch (error) {
+        if (typeof console !== "undefined") {
+            console.warn?.("[icon-cache] Cache validation failed:", error);
+        }
+    }
+};
+
+/**
  * Pre-initializes cache on module load (non-blocking)
  */
 if (isOPFSSupported()) {
-    initOPFSCache().catch(() => {
+    initOPFSCache().then(() => {
+        // Validate cache after initialization
+        validateAndCleanCache().catch(() => {
+            /* silent validation failure */
+        });
+    }).catch(() => {
         /* silent init failure */
     });
 }

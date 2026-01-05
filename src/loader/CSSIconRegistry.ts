@@ -20,9 +20,147 @@ let styleElement: HTMLStyleElement | null = null;
 // Track which icon+style+bucket combinations have rules
 const registeredRules = new Set<string>();
 
+// Store actual rule data for persistence across refreshes
+const registeredRuleData = new Map<string, { selector: string; cssText: string }>();
+
+// Persistent registry storage - survives page refreshes via localStorage
+const PERSISTENT_REGISTRY_KEY = 'ui-icon-registry-state';
+
 // Pending rule insertions (batched for performance)
 let pendingRules: Array<{ selector: string; cssText: string; key: string }> = [];
 let flushScheduled = false;
+
+/**
+ * Saves the registry state to localStorage for persistence across refreshes
+ */
+const saveRegistryState = (): void => {
+    if (typeof localStorage === 'undefined') return;
+
+    try {
+        const ruleData = Array.from(registeredRuleData.entries()).map(([key, data]) => ({
+            key,
+            selector: data.selector,
+            cssText: data.cssText
+        }));
+
+        const state = {
+            rules: ruleData,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(PERSISTENT_REGISTRY_KEY, JSON.stringify(state));
+    } catch {
+        // Ignore localStorage errors
+    }
+};
+
+// Store pending rule restorations until stylesheet is available
+let pendingRuleRestorations: Array<{ key: string; selector: string; cssText: string }> | null = null;
+
+/**
+ * Loads the registry state from localStorage and prepares rules for restoration
+ */
+const loadRegistryState = (): void => {
+    if (typeof localStorage === 'undefined') return;
+
+    try {
+        const stored = localStorage.getItem(PERSISTENT_REGISTRY_KEY);
+        if (!stored) return;
+
+        const state = JSON.parse(stored);
+        if (state.rules && Array.isArray(state.rules)) {
+            // Only restore rules from the last 24 hours to avoid stale data
+            const age = Date.now() - (state.timestamp || 0);
+            if (age < 24 * 60 * 60 * 1000) {
+                // Store for later restoration when stylesheet is available
+                pendingRuleRestorations = state.rules;
+                if (typeof console !== 'undefined') {
+                    console.log?.(`[icon-registry] Prepared ${state.rules.length} rules for restoration from cache`);
+                }
+            } else {
+                // Clear expired state
+                localStorage.removeItem(PERSISTENT_REGISTRY_KEY);
+            }
+        }
+    } catch {
+        // Ignore localStorage errors
+    }
+};
+
+/**
+ * Restores pending rules to the stylesheet when it becomes available
+ */
+const restorePendingRules = (sheet: CSSStyleSheet): void => {
+    if (!pendingRuleRestorations) return;
+
+    let restoredCount = 0;
+    pendingRuleRestorations.forEach((ruleData) => {
+        if (ruleData.key && ruleData.selector && ruleData.cssText && !registeredRules.has(ruleData.key)) {
+            try {
+                // Re-insert the rule into the stylesheet
+                const ruleText = `${ruleData.selector} { ${ruleData.cssText} }`;
+                sheet.insertRule(ruleText, sheet.cssRules.length);
+
+                // Restore the tracking data
+                registeredRules.add(ruleData.key);
+                registeredRuleData.set(ruleData.key, {
+                    selector: ruleData.selector,
+                    cssText: ruleData.cssText
+                });
+                restoredCount++;
+            } catch (e) {
+                if (typeof console !== 'undefined') {
+                    console.warn?.(`[icon-registry] Failed to restore rule ${ruleData.key}:`, e);
+                }
+            }
+        }
+    });
+
+    if (typeof console !== 'undefined' && restoredCount > 0) {
+        console.log?.(`[icon-registry] Successfully restored ${restoredCount} CSS rules to stylesheet`);
+    }
+
+    pendingRuleRestorations = null; // Clear after restoration
+};
+
+/**
+ * Clears the persistent registry state
+ */
+export const clearRegistryState = (): void => {
+    registeredRules.clear();
+    registeredRuleData.clear();
+    pendingRules.length = 0;
+    flushScheduled = false;
+
+    // Reset stylesheet
+    if (iconStyleSheet && document.adoptedStyleSheets) {
+        const index = document.adoptedStyleSheets.indexOf(iconStyleSheet as CSSStyleSheet);
+        if (index !== -1) {
+            document.adoptedStyleSheets.splice(index, 1);
+        }
+    }
+    iconStyleSheet = null;
+    styleElement = null;
+
+    if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(PERSISTENT_REGISTRY_KEY);
+    }
+
+    if (typeof console !== 'undefined') {
+        console.log?.('[icon-registry] Registry state cleared');
+    }
+};
+
+/**
+ * Reinitializes the registry - useful for page refreshes or when needing to reload all rules
+ */
+export const reinitializeRegistry = (): void => {
+    clearRegistryState();
+    ensureStyleSheet();
+
+    if (typeof console !== 'undefined') {
+        console.log?.('[icon-registry] Registry reinitialized');
+    }
+};
 
 /**
  * Gets or creates the shared icon stylesheet
@@ -30,6 +168,11 @@ let flushScheduled = false;
 export const ensureStyleSheet = (): CSSStyleSheet | null => {
     if (iconStyleSheet) return iconStyleSheet as CSSStyleSheet;
     if (typeof document === "undefined") return null;
+
+    // Load persistent registry state on first access
+    if (registeredRules.size === 0) {
+        loadRegistryState();
+    }
 
     // Check for existing style element
     /*styleElement = document.querySelector<HTMLStyleElement>("style[data-icon-registry]");
@@ -49,6 +192,10 @@ export const ensureStyleSheet = (): CSSStyleSheet | null => {
     iconStyleSheet.insertRule(`@property --icon-image { syntax: "<image>"; inherits: true; initial-value: linear-gradient(#0000, #0000); }`, iconStyleSheet.cssRules.length);
     iconStyleSheet.insertRule(`:where(ui-icon), :host(ui-icon) { --icon-image: linear-gradient(#0000, #0000); }`, iconStyleSheet.cssRules.length);
     iconStyleSheet.insertRule(`:where(ui-icon:not([icon])), :where(ui-icon[icon=""]), :host(ui-icon:not([icon])), :host(ui-icon[icon=""]) { background-color: transparent; }`, iconStyleSheet.cssRules.length);
+
+    // Restore any pending rules from localStorage
+    restorePendingRules(iconStyleSheet);
+
     return iconStyleSheet as CSSStyleSheet;
 };
 
@@ -130,6 +277,12 @@ const flushPendingRules = () => {
             const ruleText = `${selector} { ${cssText} }`;
             sheet.insertRule(ruleText, sheet.cssRules.length);
             registeredRules.add(key);
+
+            // Store the rule data for persistence
+            registeredRuleData.set(key, { selector, cssText });
+
+            // Save registry state after successful rule insertion
+            saveRegistryState();
         } catch (e) {
             if (typeof console !== "undefined") {
                 console.warn?.("[icon-registry] Failed to insert rule:", e);
@@ -289,3 +442,31 @@ export const preregisterIcons = (
         registerIconRule(name, style, url);
     }
 };
+
+/**
+ * Pre-initializes registry on module load (non-blocking)
+ */
+if (typeof document !== "undefined" && typeof window !== "undefined") {
+    // Load persisted state immediately (doesn't require DOM)
+    loadRegistryState();
+
+    // Initialize stylesheet on next tick to ensure DOM is ready
+    queueMicrotask(() => {
+        ensureStyleSheet();
+
+        // Listen for page visibility changes to reinitialize if needed
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && !iconStyleSheet) {
+                // Page became visible and we don't have a stylesheet - reinitialize
+                reinitializeRegistry();
+            }
+        });
+
+        // Also reinitialize on focus to handle tab switching
+        window.addEventListener('focus', () => {
+            if (!iconStyleSheet) {
+                reinitializeRegistry();
+            }
+        });
+    });
+}

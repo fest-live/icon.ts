@@ -27,9 +27,43 @@ export const MAX_RASTER_SIZE = 512;
 export const MIN_RASTER_SIZE = 32;
 
 // Timeout and retry queue configuration
-const FETCH_TIMEOUT_MS = 2000;
-const RETRY_DELAY_MS = 500;
-const MAX_RETRIES = 3;
+// Increased timeout for mobile/slow networks
+const FETCH_TIMEOUT_MS = 5000;
+const RETRY_DELAY_MS = 1000; // Progressive delay
+const MAX_RETRIES = 5; // More retries for unreliable networks
+
+// Known working CDNs (avoid CORS issues)
+const RELIABLE_CDNS = [
+    'cdn.jsdelivr.net',
+    'unpkg.com'
+    // Excluding: 'cdn.skypack.dev', 'esm.sh' - known CORS issues
+];
+
+// Network detection utilities
+const isOnline = (): boolean => {
+    try {
+        return navigator.onLine !== false;
+    } catch {
+        return true; // Assume online if can't detect
+    }
+};
+
+const isSlowConnection = (): boolean => {
+    try {
+        const connection = (navigator as any).connection ||
+                          (navigator as any).mozConnection ||
+                          (navigator as any).webkitConnection;
+        if (!connection) return false;
+
+        // Check for slow connection types
+        const slowTypes = ['slow-2g', '2g', '3g'];
+        return slowTypes.includes(connection.effectiveType) ||
+               connection.saveData === true ||
+               connection.downlink < 1.5; // Less than 1.5 Mbps
+    } catch {
+        return false;
+    }
+};
 
 // Delayed retry queue
 type QueuedItem = { name: string; creator?: (name: any) => any; resolve: (v: string) => void; reject: (e: Error) => void; retries: number };
@@ -44,13 +78,39 @@ const scheduleRetryQueue = () => {
 
 const processRetryQueue = () => {
     retryScheduled = false;
-    const batch = retryQueue.splice(0, Math.min(4, retryQueue.length));
-    for (const item of batch) {
-        loadAsImageInternal(item.name, item.creator, item.retries)
-            .then(item.resolve)
-            .catch(item.reject);
+
+    // Skip retries if offline
+    if (!isOnline()) {
+        if (typeof console !== "undefined") {
+            console.log?.("[icon-loader] Skipping retries - device is offline");
+        }
+        // Clear queue to prevent accumulation
+        retryQueue.length = 0;
+        return;
     }
-    scheduleRetryQueue();
+
+    const batch = retryQueue.splice(0, Math.min(2, retryQueue.length)); // Even smaller batches
+    for (const item of batch) {
+        // Add progressive delay for retries
+        const delay = RETRY_DELAY_MS * Math.pow(1.5, item.retries - 1);
+        setTimeout(() => {
+            loadAsImageInternal(item.name, item.creator, item.retries)
+                .then(item.resolve)
+                .catch((error) => {
+                    // Enhanced error logging for debugging
+                    if (typeof console !== "undefined") {
+                        console.warn?.(`[icon-loader] Retry ${item.retries}/${MAX_RETRIES} failed for ${item.name}:`, error?.message || error);
+                    }
+                    item.reject(error);
+                });
+        }, delay);
+    }
+
+    // Schedule next batch with longer delay if we have more items
+    if (retryQueue.length > 0) {
+        const nextDelay = isSlowConnection() ? RETRY_DELAY_MS * 2 : RETRY_DELAY_MS;
+        setTimeout(processRetryQueue, nextDelay);
+    }
 };
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
@@ -481,16 +541,53 @@ export const rasterizeSVG = (blob: Blob | string)=>{ return isPathURL(blob) ? re
  */
 const fetchAndCacheSvg = async (url: string): Promise<Blob> => {
     console.log(`[ui-icon] Fetching SVG from: ${url}`);
-    const response = await fetch(url);
+    const response = await fetch(url, {
+        credentials: 'omit', // Prevent CORS issues with CDNs that return wildcard headers
+        mode: 'cors' // Explicitly set CORS mode for external requests
+    });
     if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.status}`);
+        const errorMsg = `Failed to fetch ${url}: ${response.status} ${response.statusText}`;
+        console.warn(`[ui-icon] ${errorMsg}`);
+        throw new Error(errorMsg);
     }
     const blob = await response.blob();
-    console.log(`[ui-icon] Fetched blob of size: ${blob.size}`);
+    console.log(`[ui-icon] Fetched blob of size: ${blob.size} bytes`);
     return blob;
 };
 
+/**
+ * Validates and converts SVG text to data URL
+ */
 const toSvgDataUrl = (svgText: string): string => {
+    if (!svgText || typeof svgText !== 'string') {
+        throw new Error('Invalid SVG text: empty or not a string');
+    }
+
+    // Basic validation - check for SVG tag
+    const trimmed = svgText.trim();
+    if (!trimmed.includes('<svg') || !trimmed.includes('</svg>')) {
+        throw new Error('Invalid SVG: missing svg tags');
+    }
+
+    // Check for reasonable size (not empty, not too large)
+    if (trimmed.length < 50) {
+        throw new Error('Invalid SVG: content too small');
+    }
+
+    if (trimmed.length > 1024 * 1024) { // 1MB limit
+        throw new Error('Invalid SVG: content too large');
+    }
+
+    // Basic XML structure check
+    const openTags = trimmed.match(/<[^/?][^>]*>/g) || [];
+    const closeTags = trimmed.match(/<\/[^>]+>/g) || [];
+    const selfClosingTags = trimmed.match(/<[^>]+\/>/g) || [];
+
+    // Rough check that we have balanced tags
+    if (openTags.length + selfClosingTags.length < closeTags.length) {
+        throw new Error('Invalid SVG: unbalanced tags');
+    }
+
     // Ensure proper UTF-8 encoding for SVG data URLs
     try {
         // Use TextEncoder for proper UTF-8 handling
@@ -554,10 +651,153 @@ const rewritePhosphorUrl = (url: string): string => {
 
 const isClientErrorStatus = (error: unknown): boolean => {
     if (!(error instanceof Error)) { return false; }
-    return /Failed to fetch:\s*4\d\d\b/.test(error.message);
+
+    // Don't retry 4xx client errors (except 408 Request Timeout which might be network related)
+    if (/Failed to fetch:\s*4\d\d\b/.test(error.message)) {
+        return !/408/.test(error.message); // Allow retry for 408
+    }
+
+    // Retry on network-related errors that might be temporary
+    return /network|timeout|offline|connection|aborted/i.test(error.message) ||
+           error.name === 'TypeError' && /fetch/i.test(error.message);
 };
 
 // Internal loader with retry support
+/**
+ * Races multiple icon sources and returns the first successful one,
+ * while continuing to check for better/newer versions in the background
+ */
+const raceAndUpgradeIcon = async (candidateUrls: Array<{url: string, priority: number, isLocal?: boolean}>, effectiveUrl: string): Promise<string> => {
+    if (candidateUrls.length === 0) {
+        throw new Error("No candidate URLs provided");
+    }
+
+    // Sort by priority (lower number = higher priority)
+    candidateUrls.sort((a, b) => a.priority - b.priority);
+
+    return new Promise((resolve, reject) => {
+        let resolved = false;
+        let bestResult: {url: string, dataUrl: string, priority: number} | null = null;
+        const errors: Array<{url: string, error: unknown}> = [];
+
+        const tryResolve = (url: string, dataUrl: string, priority: number) => {
+            if (resolved && bestResult && priority >= bestResult.priority) {
+                // We already have a better or equal result, just cache this one
+                if (isOPFSSupported() && url === effectiveUrl) {
+                    fetchAndCacheSvg(url).catch(() => {/* silent */});
+                }
+                console.log(`[ui-icon] Loaded backup source for ${effectiveUrl}: ${url} (priority: ${priority})`);
+                return;
+            }
+
+            if (!resolved) {
+                resolved = true;
+                bestResult = {url, dataUrl, priority};
+                console.log(`[ui-icon] Fastest source for ${effectiveUrl}: ${url} (priority: ${priority})`);
+                resolve(dataUrl);
+
+                // Continue loading better versions in background
+                loadBetterVersions(candidateUrls, priority, effectiveUrl);
+            } else if (!bestResult || priority < bestResult.priority) {
+                // Found a better version, update the result
+                bestResult = {url, dataUrl, priority};
+                console.log(`[ui-icon] Upgraded to better version for ${effectiveUrl}: ${url} (priority: ${priority})`);
+                // Note: We don't re-resolve here as the component might have already rendered
+                // But we can update caches and prepare for future loads
+            }
+
+            // Cache successful loads
+            if (isOPFSSupported() && url === effectiveUrl) {
+                fetchAndCacheSvg(url).catch(() => {/* silent */});
+            }
+        };
+
+        const loadBetterVersions = (remainingUrls: Array<{url: string, priority: number}>, currentPriority: number, effectiveUrl: string) => {
+            // Continue loading higher priority (better) versions in background
+            const betterUrls = remainingUrls.filter(candidate => candidate.priority < currentPriority);
+            betterUrls.forEach(candidate => {
+                withTimeout(fetchAndCacheSvg(candidate.url), FETCH_TIMEOUT_MS)
+                    .then(async (blob) => {
+                        // Same validation as main loading
+                        if (!blob || blob.size === 0) return;
+                        if (blob.size > 1024 * 1024) return;
+
+                        const svgText = await blob.text();
+                        if (!svgText || svgText.trim().length === 0) return;
+
+                        const dataUrl = toSvgDataUrl(svgText);
+                        if (!dataUrl || !dataUrl.startsWith('data:image/svg+xml')) return;
+
+                        console.log(`[ui-icon] Background loaded better version from ${candidate.url}`);
+                        tryResolve(candidate.url, dataUrl, candidate.priority);
+                    })
+                    .catch(() => {/* ignore background load failures */});
+            });
+        };
+
+        // Start racing all candidates
+        candidateUrls.forEach(candidate => {
+            // Use shorter timeout for non-primary sources to fail faster
+            const timeout = candidate.priority <= 1 ? FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS * 0.7;
+            withTimeout(fetchAndCacheSvg(candidate.url), timeout)
+                .then(async (blob) => {
+                    // Validate blob before processing
+                    if (!blob || blob.size === 0) {
+                        throw new Error(`Empty or invalid blob from ${candidate.url}`);
+                    }
+
+                    if (blob.size > 1024 * 1024) { // 1MB limit
+                        throw new Error(`Blob too large from ${candidate.url}: ${blob.size} bytes`);
+                    }
+
+                    const svgText = await blob.text();
+
+                    // Additional validation for SVG content
+                    if (!svgText || svgText.trim().length === 0) {
+                        throw new Error(`Empty SVG content from ${candidate.url}`);
+                    }
+
+                    const dataUrl = toSvgDataUrl(svgText);
+
+                    // Validate the data URL was created successfully
+                    if (!dataUrl || !dataUrl.startsWith('data:image/svg+xml')) {
+                        throw new Error(`Failed to create valid data URL from ${candidate.url}`);
+                    }
+
+                    console.log(`[ui-icon] Successfully loaded ${candidate.isLocal ? 'local' : 'remote'} icon from ${candidate.url} (${svgText.length} chars)`);
+                    tryResolve(candidate.url, dataUrl, candidate.priority);
+                })
+                .catch((error) => {
+                    // Provide more specific error messages for common issues
+                    let errorMsg = error?.message || error;
+                    let isCorsError = false;
+
+                    if (errorMsg.includes('CORS') || errorMsg.includes('Access-Control')) {
+                        errorMsg = `CORS policy blocked access to ${candidate.url}. Skipping this CDN.`;
+                        isCorsError = true;
+                    } else if (errorMsg.includes('Failed to fetch')) {
+                        errorMsg = `Network error loading ${candidate.url}.`;
+                    }
+
+                    // Log CORS errors at a lower level since they're expected for some CDNs
+                    if (isCorsError) {
+                        console.log(`[ui-icon] CORS blocked: ${candidate.url} - trying next source`);
+                    } else {
+                        console.warn(`[ui-icon] Failed to load from ${candidate.url}: ${errorMsg}`);
+                    }
+
+                    errors.push({url: candidate.url, error: new Error(errorMsg)});
+
+                    // If all candidates failed, reject
+                    if (errors.length === candidateUrls.length && !resolved) {
+                        const errorMessages = errors.map(e => `${e.url}: ${(e.error as Error).message}`).join('; ');
+                        reject(new Error(`All ${candidateUrls.length} icon sources failed: ${errorMessages}`));
+                    }
+                });
+        });
+    });
+};
+
 const loadAsImageInternal = async (name: any, creator?: (name: any) => any, attempt = 0): Promise<string> => {
     if (isPathURL(name)) {
         const resolvedUrl = resolveAssetUrl(name);
@@ -574,35 +814,79 @@ const loadAsImageInternal = async (name: any, creator?: (name: any) => any, atte
         }
 
         try {
-            // Prefer OPFS cached blob URL (if available), fall back to network.
-            const candidateUrls: string[] = [];
+            // Create candidate URLs with priorities (lower = better)
+            const candidateUrls: Array<{url: string, priority: number, isLocal?: boolean}> = [];
+
+            // Priority 0: OPFS cached blob URLs (fastest) - non-blocking
             if (isOPFSSupported()) {
-                try {
-                    const cached = await getCachedVectorIcon(effectiveUrl);
-                    if (cached) { candidateUrls.push(cached); }
-                } catch {
-                    /* cache miss */
-                }
-            }
-            candidateUrls.push(effectiveUrl);
-
-            let lastError: unknown;
-            for (const url of candidateUrls) {
-                try {
-                    const blob = await withTimeout(fetchAndCacheSvg(url), FETCH_TIMEOUT_MS);
-
-                    // Cache into OPFS (store under the effective URL key)
-                    if (isOPFSSupported() && url === effectiveUrl) {
-                        cacheVectorIcon(effectiveUrl, blob).catch(() => { /* silent */ });
+                // Start cache check in background, don't await
+                getCachedVectorIcon(effectiveUrl).then(cached => {
+                    if (cached) {
+                        candidateUrls.unshift({url: cached, priority: 0, isLocal: true});
+                        console.log(`[ui-icon] Added cached version for ${effectiveUrl}: ${cached}`);
                     }
-
-                    const svgText = await blob.text();
-                    return toSvgDataUrl(svgText);
-                } catch (e) {
-                    lastError = e;
-                }
+                }).catch(() => {
+                    /* cache miss - ignore */
+                });
             }
-            throw lastError ?? new Error("Failed to load SVG");
+
+            // Priority 0.5: Local same-origin resources (if available)
+            try {
+                const urlObj = new URL(effectiveUrl);
+                if (urlObj.origin === window.location.origin) {
+                    // This is already a local resource, prioritize it
+                    candidateUrls.push({url: effectiveUrl, priority: 0.5, isLocal: true});
+                }
+            } catch {
+                /* invalid URL - ignore */
+            }
+
+            // Priority 1: Primary CDN URL (if not already added as local)
+            if (!candidateUrls.some(c => c.url === effectiveUrl)) {
+                candidateUrls.push({url: effectiveUrl, priority: 1});
+            }
+
+            // Priority 2: Alternative CDN versions (try newer versions first)
+            if (effectiveUrl.includes('cdn.jsdelivr.net') && effectiveUrl.includes('@phosphor-icons/core')) {
+                // Try newer versions first, then older ones
+                const altVersions = ['latest', '3', '2.1', '2'];
+                altVersions.forEach((version, index) => {
+                    if (!effectiveUrl.includes(`@${version}`)) {
+                        const altUrl = effectiveUrl.replace(/@\d+(?:\.\d+)?/, `@${version}`);
+                        candidateUrls.push({url: altUrl, priority: 2 + index * 0.1}); // Fine-grained priority
+                    }
+                });
+            }
+
+            // Priority 3: Alternative CDN mirrors (only reliable ones)
+            if (effectiveUrl.includes('cdn.jsdelivr.net')) {
+                RELIABLE_CDNS.forEach((cdn, index) => {
+                    if (!effectiveUrl.includes(cdn)) {
+                        const mirror = { url: effectiveUrl.replace('cdn.jsdelivr.net', cdn), priority: 3 + index * 0.1 };
+                        candidateUrls.push({url: mirror.url, priority: mirror.priority});
+                    }
+                });
+            }
+
+            // Priority 4: HTTP fallback for HTTPS-only failures (rare but useful for some networks)
+            if (effectiveUrl.startsWith('https://')) {
+                candidateUrls.push({url: effectiveUrl.replace('https://', 'http://'), priority: 4});
+            }
+
+            // Debug logging for racing candidates
+            if (candidateUrls.length > 1) {
+                console.log(`[ui-icon] Racing ${candidateUrls.length} sources for ${effectiveUrl}:`,
+                    candidateUrls.map(c => ({
+                        url: c.url.replace('https://', '').split('/')[0], // Just show domain for brevity
+                        priority: c.priority,
+                        local: c.isLocal || false
+                    })));
+            }
+
+            // Race all candidates and return the fastest successful one
+            const result = await raceAndUpgradeIcon(candidateUrls, effectiveUrl);
+            return result;
+
         } catch (error) {
             console.warn(`[ui-icon] Failed to load icon: ${effectiveUrl}`, error);
 
@@ -655,4 +939,104 @@ export const loadAsImage = async (name: any, creator?: (name: any) => any): Prom
     if (isPathURL(name)) { name = resolveAssetUrl(name) || name; }
     // @ts-ignore // !experimental `getOrInsert` feature!
     return iconMap.getOrInsertComputed(name, () => loadAsImageInternal(name, creator, 0));
+};
+
+/**
+ * Clears in-memory caches for icon loading
+ * Useful when switching themes or when cache becomes stale
+ */
+export const clearIconCaches = (): void => {
+    resolvedUrlCache.clear();
+    imageElementCache.clear();
+    iconMap.clear();
+    retryQueue.length = 0; // Clear pending retries
+
+    if (typeof console !== "undefined") {
+        console.log?.("[icon-loader] Cleared all in-memory caches");
+    }
+};
+
+/**
+ * Forces cache invalidation for a specific icon
+ * @param iconName The icon name/URL to invalidate
+ */
+export const invalidateIconCache = (iconName: string): void => {
+    if (!iconName) return;
+
+    // Remove from in-memory caches
+    resolvedUrlCache.delete(iconName);
+    imageElementCache.delete(iconName);
+    iconMap.delete(iconName);
+
+    // Remove from OPFS cache (async, fire-and-forget)
+    if (typeof import('./OPFSCache') !== 'undefined') {
+        import('./OPFSCache').then(({ clearAllCache }) => {
+            // For individual icons, we might want to implement selective clearing
+            // For now, just clear problematic entries
+            clearAllCache().catch(() => { /* silent */ });
+        }).catch(() => { /* silent */ });
+    }
+
+    if (typeof console !== "undefined") {
+        console.log?.(`[icon-loader] Invalidated cache for: ${iconName}`);
+    }
+};
+
+/**
+ * Tests the racing loading functionality by loading an icon with verbose logging
+ * @param iconUrl The icon URL to test
+ * @returns Promise that resolves to the loaded data URL
+ */
+export const testIconRacing = async (iconUrl: string): Promise<string> => {
+    console.log(`[icon-test] Testing racing for: ${iconUrl}`);
+
+    // Clear caches to force fresh load
+    clearIconCaches();
+
+    const startTime = performance.now();
+    const result = await loadAsImage(iconUrl);
+    const endTime = performance.now();
+
+    console.log(`[icon-test] Racing test completed in ${(endTime - startTime).toFixed(2)}ms`);
+    console.log(`[icon-test] Result:`, result.substring(0, 100) + '...');
+
+    return result;
+};
+
+/**
+ * Debug function to check icon system status
+ */
+export const debugIconSystem = (): void => {
+    console.group('[icon-debug] Icon System Status');
+
+    // Check caches first (always available)
+    console.log('Resolved URL cache size:', resolvedUrlCache.size);
+    console.log('Image element cache size:', imageElementCache.size);
+    console.log('Icon map size:', iconMap.size);
+    console.log('Retry queue length:', retryQueue.length);
+
+    // Check CSS registry and OPFS asynchronously
+    Promise.all([
+        import('./CSSIconRegistry').then(({ getRegistryStats, ensureStyleSheet }) => {
+            const sheet = ensureStyleSheet();
+            const stats = getRegistryStats();
+            console.log('CSS Registry:', stats);
+            console.log('StyleSheet exists:', !!sheet);
+            console.log('Adopted sheets:', document.adoptedStyleSheets?.length || 0);
+            console.log('CSS rules in sheet:', sheet?.cssRules?.length || 0);
+        }).catch(e => console.error('CSS Registry error:', e)),
+
+        import('./OPFSCache').then(({ isOPFSSupported, getCacheStats }) => {
+            console.log('OPFS supported:', isOPFSSupported());
+            return getCacheStats().then(stats => {
+                console.log('OPFS cache stats:', stats);
+            });
+        }).catch(e => console.error('OPFS check error:', e))
+    ]).catch(() => {/* ignore */});
+
+    // Check network status
+    console.log('Network online:', navigator.onLine);
+    console.log('Slow connection:', isSlowConnection());
+
+    console.groupEnd();
 };

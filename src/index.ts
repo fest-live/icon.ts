@@ -8,7 +8,16 @@ export {
     initOPFSCache,
     clearAllCache as clearIconCache,
     getCacheStats as getIconCacheStats,
+    validateAndCleanCache,
 } from "./loader/OPFSCache";
+
+// Icon loading cache utilities
+export {
+    clearIconCaches,
+    invalidateIconCache,
+    testIconRacing,
+    debugIconSystem,
+} from "./loader/Loader";
 
 // CSS-based icon registry utilities
 export {
@@ -16,6 +25,8 @@ export {
     registerIconRule,
     hasIconRule,
     clearIconRules,
+    clearRegistryState,
+    reinitializeRegistry,
     getRegistryStats,
     preregisterIcons,
 } from "./loader/CSSIconRegistry";
