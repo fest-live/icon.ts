@@ -19,6 +19,7 @@ import styles from "./Phosphor.scss?inline";
 import {
     ensureMaskValue,
     loadAsImage,
+    FALLBACK_ICON_DATA_URL,
     MIN_RASTER_SIZE,
     quantizeToBucket,
     camelToKebab,
@@ -40,7 +41,7 @@ const capitalizeFirstLetter = (str: unknown) => {
 // @ts-ignore
 export class UIPhosphorIcon extends HTMLElement {
     static get observedAttributes() {
-        return ["icon", "icon-style", "size", "width"];
+        return ["icon", "icon-style", "size", "width", "icon-base"];
     }
 
     #options: { padding?: number | string; icon?: string; iconStyle?: string } = {
@@ -139,6 +140,26 @@ export class UIPhosphorIcon extends HTMLElement {
         }
     }
 
+    /**
+     * Optional base URL for same-origin icon hosting.
+     * Example: icon-base="/assets/phosphor"
+     * Will be tried before CDNs.
+     */
+    get iconBase(): string {
+        return this.getAttribute("icon-base") ?? "";
+    }
+
+    set iconBase(value: string) {
+        const normalized = (value ?? "").trim();
+        if (!normalized) {
+            this.removeAttribute("icon-base");
+            return;
+        }
+        if (this.getAttribute("icon-base") !== normalized) {
+            this.setAttribute("icon-base", normalized);
+        }
+    }
+
     connectedCallback(): void {
         this.#applyHostDefaults();
         this.#setupResizeObserver(this);
@@ -231,6 +252,15 @@ export class UIPhosphorIcon extends HTMLElement {
                 }
                 break;
             }
+            case "icon-base": {
+                // Changing base affects load source; force reload.
+                this.#currentIconUrl = "";
+                this.#maskKeyBase = "";
+                if (this.isConnected) {
+                    this.updateIcon(this.icon);
+                }
+                break;
+            }
         }
     }
 
@@ -275,6 +305,8 @@ export class UIPhosphorIcon extends HTMLElement {
         }
 
         const cdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${ICON}-${iconStyle}.svg`;
+        const base = (this.iconBase ?? "").trim().replace(/\/+$/, "");
+        const localPath = base ? `${base}/${iconStyle}/${ICON}-${iconStyle}.svg` : "";
         const requestKey = `${iconStyle}:${ICON}`;
 
         this.#maskKeyBase = requestKey;
@@ -295,25 +327,43 @@ export class UIPhosphorIcon extends HTMLElement {
             });
 
             if (shouldLoad) {
-                // Load from CDN with validation
-                loadAsImage(cdnPath)
-                    .then((url) => {
-                        console.log(`[ui-icon] Loaded icon ${requestKey} from ${cdnPath}:`, url);
-                        if (!url || typeof url !== 'string') {
-                            console.warn(`[ui-icon] Invalid URL returned for ${requestKey}:`, url);
-                            return;
+                const sources = (localPath ? [localPath, cdnPath] : [cdnPath]);
+                (async () => {
+                    let lastUrl: string | null = null;
+                    let lastError: unknown = null;
+
+                    for (const src of sources) {
+                        try {
+                            const url = await loadAsImage(src);
+                            lastUrl = url;
+
+                            // If local source returns fallback placeholder, try the CDN next.
+                            if (src === localPath && url === FALLBACK_ICON_DATA_URL) {
+                                continue;
+                            }
+                            break;
+                        } catch (e) {
+                            lastError = e;
                         }
-                        if (this.#maskKeyBase !== requestKey) {
-                            console.log(`[ui-icon] Ignoring outdated request for ${requestKey}`);
-                            return;
-                        }
-                        this.#currentIconUrl = url;
-                        this.#retryAttempt = 0; // Reset retry counter on success
-                        this.#queueMaskUpdate();
-                    })
-                    .catch((error) => {
-                        // Handle timeout - queue for delayed retry
-                        const isTimeout = error instanceof Error && error.message.includes("Timeout");
+                    }
+
+                    const url = lastUrl;
+                    console.log(`[ui-icon] Loaded icon ${requestKey} (${localPath ? "local+cdn" : "cdn"}):`, url);
+                    if (!url || typeof url !== "string") {
+                        console.warn(`[ui-icon] Invalid URL returned for ${requestKey}:`, url);
+                        return;
+                    }
+                    if (this.#maskKeyBase !== requestKey) {
+                        console.log(`[ui-icon] Ignoring outdated request for ${requestKey}`);
+                        return;
+                    }
+                    this.#currentIconUrl = url;
+                    this.#retryAttempt = 0;
+                    this.#queueMaskUpdate();
+
+                    // If both sources failed and we ended up with fallback, keep the old retry behavior for timeouts.
+                    if (url === FALLBACK_ICON_DATA_URL && lastError instanceof Error) {
+                        const isTimeout = lastError.message.includes("Timeout");
                         if (isTimeout && this.#retryAttempt < UIPhosphorIcon.#MAX_ICON_RETRIES && this.isConnected) {
                             this.#retryAttempt++;
                             setTimeout(() => {
@@ -321,10 +371,13 @@ export class UIPhosphorIcon extends HTMLElement {
                                     this.updateIcon(nextIcon);
                                 }
                             }, UIPhosphorIcon.#RETRY_DELAY_MS * this.#retryAttempt);
-                        } else if (typeof console !== "undefined") {
-                            console.error?.("[ui-icon] Failed to load icon", cdnPath, error);
                         }
-                    });
+                    }
+                })().catch((error) => {
+                    if (typeof console !== "undefined") {
+                        console.error?.("[ui-icon] Failed to load icon sources", { localPath, cdnPath }, error);
+                    }
+                });
             }
         });
 

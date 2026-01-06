@@ -24,11 +24,79 @@ const registeredRules = new Set<string>();
 const registeredRuleData = new Map<string, { selector: string; cssText: string }>();
 
 // Persistent registry storage - survives page refreshes via localStorage
-const PERSISTENT_REGISTRY_KEY = 'ui-icon-registry-state';
+const PERSISTENT_REGISTRY_KEY = 'ui-icon-registry-state.v2';
+const LEGACY_PERSISTENT_KEYS = ['ui-icon-registry-state'];
+
+const extractFirstCssUrl = (cssText: string): string | null => {
+    if (!cssText || typeof cssText !== "string") return null;
+    const match = cssText.match(/url\(\s*(['"]?)([^'")\s]+)\1\s*\)/i);
+    return match?.[2] ?? null;
+};
+
+const isPersistableRuleCssText = (cssText: string): boolean => {
+    const url = extractFirstCssUrl(cssText);
+    if (!url) { return false; }
+
+    // blob: URLs are not stable across refreshes
+    if (/^blob:/i.test(url)) { return false; }
+
+    // data: URLs are safe to persist
+    if (/^data:/i.test(url)) { return true; }
+
+    // For http(s), only persist if same-origin (cross-origin will trigger CORS issues in CSS fetch)
+    if (/^https?:/i.test(url)) {
+        try {
+            if (typeof location !== "undefined" && typeof URL === "function") {
+                return new URL(url).origin === location.origin;
+            }
+        } catch {
+            return false;
+        }
+        return false;
+    }
+
+    // Relative/same-origin paths are OK
+    return true;
+};
 
 // Pending rule insertions (batched for performance)
 let pendingRules: Array<{ selector: string; cssText: string; key: string }> = [];
 let flushScheduled = false;
+
+const ICON_PROXY_PATH = "/api/icon-proxy";
+
+const tryRewriteCrossOriginUrlToProxy = (rawUrl: string): string | null => {
+    if (!rawUrl || typeof rawUrl !== "string") return null;
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return null;
+
+    // data/blob are already safe in CSS.
+    if (/^(data:|blob:)/i.test(trimmed)) return trimmed;
+
+    // Relative URLs are same-origin.
+    if (/^(\/|\.\/|\.\.\/)/.test(trimmed)) return trimmed;
+
+    // Only rewrite absolute cross-origin URLs.
+    if (!/^https?:/i.test(trimmed)) return trimmed;
+
+    try {
+        if (typeof location === "undefined" || typeof URL !== "function") return trimmed;
+        const u = new URL(trimmed);
+        if (u.origin === location.origin) return trimmed;
+        return `${ICON_PROXY_PATH}?url=${encodeURIComponent(trimmed)}`;
+    } catch {
+        return null;
+    }
+};
+
+const rewriteCssUrlFunctionValue = (cssValue: string): string | null => {
+    if (!cssValue || typeof cssValue !== "string") return null;
+    const match = cssValue.match(/url\(\s*(['"]?)([^'")\s]+)\1\s*\)/i);
+    if (!match) return cssValue;
+    const rewritten = tryRewriteCrossOriginUrlToProxy(match[2]);
+    if (!rewritten) return null;
+    return `url("${rewritten}")`;
+};
 
 /**
  * Saves the registry state to localStorage for persistence across refreshes
@@ -37,11 +105,13 @@ const saveRegistryState = (): void => {
     if (typeof localStorage === 'undefined') return;
 
     try {
-        const ruleData = Array.from(registeredRuleData.entries()).map(([key, data]) => ({
-            key,
-            selector: data.selector,
-            cssText: data.cssText
-        }));
+        const ruleData = Array.from(registeredRuleData.entries())
+            .filter(([, data]) => isPersistableRuleCssText(data.cssText))
+            .map(([key, data]) => ({
+                key,
+                selector: data.selector,
+                cssText: data.cssText
+            }));
 
         const state = {
             rules: ruleData,
@@ -63,6 +133,13 @@ const loadRegistryState = (): void => {
     if (typeof localStorage === 'undefined') return;
 
     try {
+        // Clean legacy keys eagerly to avoid restoring unsafe old rules.
+        for (const legacyKey of LEGACY_PERSISTENT_KEYS) {
+            if (legacyKey !== PERSISTENT_REGISTRY_KEY) {
+                try { localStorage.removeItem(legacyKey); } catch { /* ignore */ }
+            }
+        }
+
         const stored = localStorage.getItem(PERSISTENT_REGISTRY_KEY);
         if (!stored) return;
 
@@ -72,9 +149,9 @@ const loadRegistryState = (): void => {
             const age = Date.now() - (state.timestamp || 0);
             if (age < 24 * 60 * 60 * 1000) {
                 // Store for later restoration when stylesheet is available
-                pendingRuleRestorations = state.rules;
+                pendingRuleRestorations = state.rules.filter((r: any) => isPersistableRuleCssText(r?.cssText));
                 if (typeof console !== 'undefined') {
-                    console.log?.(`[icon-registry] Prepared ${state.rules.length} rules for restoration from cache`);
+                    console.log?.(`[icon-registry] Prepared ${pendingRuleRestorations.length} rules for restoration from cache`);
                 }
             } else {
                 // Clear expired state
@@ -93,8 +170,13 @@ const restorePendingRules = (sheet: CSSStyleSheet): void => {
     if (!pendingRuleRestorations) return;
 
     let restoredCount = 0;
+    let skippedCount = 0;
     pendingRuleRestorations.forEach((ruleData) => {
         if (ruleData.key && ruleData.selector && ruleData.cssText && !registeredRules.has(ruleData.key)) {
+            if (!isPersistableRuleCssText(ruleData.cssText)) {
+                skippedCount++;
+                return;
+            }
             try {
                 // Re-insert the rule into the stylesheet
                 const ruleText = `${ruleData.selector} { ${ruleData.cssText} }`;
@@ -115,8 +197,8 @@ const restorePendingRules = (sheet: CSSStyleSheet): void => {
         }
     });
 
-    if (typeof console !== 'undefined' && restoredCount > 0) {
-        console.log?.(`[icon-registry] Successfully restored ${restoredCount} CSS rules to stylesheet`);
+    if (typeof console !== 'undefined' && (restoredCount > 0 || skippedCount > 0)) {
+        console.log?.(`[icon-registry] Restored ${restoredCount} CSS rules to stylesheet (skipped ${skippedCount} unsafe/unstable rules)`);
     }
 
     pendingRuleRestorations = null; // Clear after restoration
@@ -229,7 +311,13 @@ const createImageSetCSS = (
     }
 
     return `image-set(${parts.join(", ")})`;*/
-    return (url.startsWith("url(") ? url : `url("${url}")`);
+    // Ensure the CSS doesn't directly reference cross-origin https://... URLs,
+    // because CSS fetches are credentialed and many CDNs respond with ACAO="*".
+    if (url.startsWith("url(")) {
+        return rewriteCssUrlFunctionValue(url) ?? "linear-gradient(#0000, #0000)";
+    }
+    const rewritten = tryRewriteCrossOriginUrlToProxy(url);
+    return rewritten ? `url("${rewritten}")` : "linear-gradient(#0000, #0000)";
 };
 
 /**
