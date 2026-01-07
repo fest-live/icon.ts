@@ -684,7 +684,7 @@ const rewritePhosphorUrl = (url: string): string => {
     // - https://cdn.jsdelivr.net/gh/phosphor-icons/phosphor-icons/src/{style}/{name}.svg
     //
     // Correct/stable format (npm package assets):
-    // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/{style}/{name}-{style}.svg
+    // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/{style}/{name}.svg
     //
     // Keep this rewrite conservative: only rewrite known phosphor CDN patterns.
     if (!url || typeof url !== 'string') return url;
@@ -709,7 +709,30 @@ const rewritePhosphorUrl = (url: string): string => {
                     // Validate style and icon name
                     const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
                     if (validStyles.includes(style) && iconName && /^[a-z0-9-]+$/.test(iconName)) {
-                        return `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${style}/${iconName}-${style}.svg`;
+                        return `/api/phosphor-icons/${style}/${iconName}.svg`;
+                    }
+                }
+            }
+        }
+
+        // Also handle direct npm package URLs that might be used
+        if (urlObj.hostname === 'cdn.jsdelivr.net' &&
+            urlObj.pathname.startsWith('/npm/@phosphor-icons/')) {
+            // Extract style and icon name from npm URL
+            const pathParts = urlObj.pathname.split('/').filter(Boolean);
+            const assetsIndex = pathParts.indexOf('assets');
+
+            if (assetsIndex >= 0 && pathParts.length >= assetsIndex + 3) {
+                const style = pathParts[assetsIndex + 1];
+                const fileName = pathParts[assetsIndex + 2];
+
+                if (style && fileName && fileName.endsWith('.svg')) {
+                    const iconName = fileName.replace(/\.svg$/i, '');
+
+                    // Validate style and icon name
+                    const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
+                    if (validStyles.includes(style) && iconName && /^[a-z0-9-]+$/.test(iconName)) {
+                        return `/api/phosphor-icons/${style}/${iconName}.svg`;
                     }
                 }
             }

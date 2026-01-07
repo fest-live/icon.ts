@@ -304,9 +304,11 @@ export class UIPhosphorIcon extends HTMLElement {
             iconStyle = 'duotone';
         }
 
-        const cdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${ICON}-${iconStyle}.svg`;
+        // Try direct CDN first (most reliable), then proxy, then local
+        const directCdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${ICON}.svg`;
+        const proxyCdnPath = `/api/phosphor-icons/${iconStyle}/${ICON}.svg`;
         const base = (this.iconBase ?? "").trim().replace(/\/+$/, "");
-        const localPath = base ? `${base}/${iconStyle}/${ICON}-${iconStyle}.svg` : "";
+        const localPath = base ? `${base}/${iconStyle}/${ICON}.svg` : "";
         const requestKey = `${iconStyle}:${ICON}`;
 
         this.#maskKeyBase = requestKey;
@@ -327,7 +329,7 @@ export class UIPhosphorIcon extends HTMLElement {
             });
 
             if (shouldLoad) {
-                const sources = (localPath ? [localPath, cdnPath] : [cdnPath]);
+                const sources = (localPath ? [directCdnPath, proxyCdnPath, localPath] : [directCdnPath, proxyCdnPath]);
                 (async () => {
                     let lastUrl: string | null = null;
                     let lastError: unknown = null;
@@ -348,7 +350,7 @@ export class UIPhosphorIcon extends HTMLElement {
                     }
 
                     const url = lastUrl;
-                    console.log(`[ui-icon] Loaded icon ${requestKey} (${localPath ? "local+cdn" : "cdn"}):`, url);
+                    console.log(`[ui-icon] Loaded icon ${requestKey} (${localPath ? "local+proxy+fallback" : "proxy+fallback"}):`, url);
                     if (!url || typeof url !== "string") {
                         console.warn(`[ui-icon] Invalid URL returned for ${requestKey}:`, url);
                         return;
@@ -375,7 +377,7 @@ export class UIPhosphorIcon extends HTMLElement {
                     }
                 })().catch((error) => {
                     if (typeof console !== "undefined") {
-                        console.error?.("[ui-icon] Failed to load icon sources", { localPath, cdnPath }, error);
+                        console.error?.("[ui-icon] Failed to load icon sources", { directCdnPath, proxyCdnPath, localPath }, error);
                     }
                 });
             }
