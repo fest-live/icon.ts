@@ -304,11 +304,17 @@ export class UIPhosphorIcon extends HTMLElement {
             iconStyle = 'duotone';
         }
 
-        // Try direct CDN first (most reliable), then proxy, then local
-        const directCdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${ICON}.svg`;
-        const proxyCdnPath = `/api/phosphor-icons/${iconStyle}/${ICON}.svg`;
+        // For duotone icons, append '-duotone' to the filename
+        // For other styles like 'fill', 'bold', etc., append '-{style}'
+        const iconFileName = iconStyle === 'duotone' ? `${ICON}-duotone` :
+                            iconStyle !== 'regular' ? `${ICON}-${iconStyle}` :
+                            ICON;
+
+        // Try direct CDN first (most reliable), then proxy (without suffix - proxy adds it), then local
+        const directCdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${iconFileName}.svg`;
+        const proxyCdnPath = `/api/phosphor-icons/${iconStyle}/${ICON}.svg`; // Proxy expects base name, adds suffix
         const base = (this.iconBase ?? "").trim().replace(/\/+$/, "");
-        const localPath = base ? `${base}/${iconStyle}/${ICON}.svg` : "";
+        const localPath = base ? `${base}/${iconStyle}/${iconFileName}.svg` : "";
         const requestKey = `${iconStyle}:${ICON}`;
 
         this.#maskKeyBase = requestKey;

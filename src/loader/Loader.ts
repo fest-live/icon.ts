@@ -704,7 +704,14 @@ const rewritePhosphorUrl = (url: string): string => {
                 const fileName = pathParts[srcIndex + 2];
 
                 if (style && fileName && fileName.endsWith('.svg')) {
-                    const iconName = fileName.replace(/\.svg$/i, '');
+                    let iconName = fileName.replace(/\.svg$/i, '');
+
+                    // Remove style suffix from icon name if present (e.g., "folder-open-duotone" -> "folder-open")
+                    if (style === 'duotone' && iconName.endsWith('-duotone')) {
+                        iconName = iconName.replace(/-duotone$/, '');
+                    } else if (style !== 'regular' && iconName.endsWith(`-${style}`)) {
+                        iconName = iconName.replace(new RegExp(`-${style}$`), '');
+                    }
 
                     // Validate style and icon name
                     const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
@@ -727,7 +734,14 @@ const rewritePhosphorUrl = (url: string): string => {
                 const fileName = pathParts[assetsIndex + 2];
 
                 if (style && fileName && fileName.endsWith('.svg')) {
-                    const iconName = fileName.replace(/\.svg$/i, '');
+                    let iconName = fileName.replace(/\.svg$/i, '');
+
+                    // Remove style suffix from icon name if present (e.g., "folder-open-duotone" -> "folder-open")
+                    if (style === 'duotone' && iconName.endsWith('-duotone')) {
+                        iconName = iconName.replace(/-duotone$/, '');
+                    } else if (style !== 'regular' && iconName.endsWith(`-${style}`)) {
+                        iconName = iconName.replace(new RegExp(`-${style}$`), '');
+                    }
 
                     // Validate style and icon name
                     const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
