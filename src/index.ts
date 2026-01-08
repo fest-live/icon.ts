@@ -30,5 +30,3 @@ export {
     getRegistryStats,
     preregisterIcons,
 } from "./loader/CSSIconRegistry";
-
-console.log(UIPhosphorIcon);

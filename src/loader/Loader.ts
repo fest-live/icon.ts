@@ -686,11 +686,41 @@ const rewritePhosphorUrl = (url: string): string => {
     // Correct/stable format (npm package assets):
     // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/{style}/{name}.svg
     //
-    // Keep this rewrite conservative: only rewrite known phosphor CDN patterns.
+    // Keep this rewrite conservative: only rewrite known phosphor patterns.
     if (!url || typeof url !== 'string') return url;
 
     try {
+        const isHttpOrigin = (() => {
+            const proto = (globalScope.location as any)?.protocol || "";
+            return proto === "http:" || proto === "https:";
+        })();
+
+        const toNpmAssetUrl = (style: string, baseName: string) => {
+            // For duotone icons, append '-duotone' to the filename
+            // For other styles like 'fill', 'bold', etc., append '-{style}'
+            const iconFileName = style === "duotone"
+                ? `${baseName}-duotone`
+                : style !== "regular"
+                    ? `${baseName}-${style}`
+                    : baseName;
+            return `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${style}/${iconFileName}.svg`;
+        };
+
         const urlObj = new URL(url);
+
+        // If we are not on an http(s) origin (e.g. chrome-extension://, file://),
+        // `/api/phosphor-icons/...` is not a real endpoint. Rewrite it to the CDN.
+        if (!isHttpOrigin && urlObj.pathname.startsWith("/api/phosphor-icons/")) {
+            const parts = urlObj.pathname.split("/").filter(Boolean); // ["api","phosphor-icons",style,name.svg]
+            const style = parts[2] || "duotone";
+            const fileName = parts[3] || "";
+            const baseName = fileName.replace(/\.svg$/i, "");
+            const validStyles = ["thin", "light", "regular", "bold", "fill", "duotone"];
+            if (validStyles.includes(style) && baseName && /^[a-z0-9-]+$/.test(baseName)) {
+                return toNpmAssetUrl(style, baseName);
+            }
+            return url;
+        }
 
         // Only rewrite GitHub phosphor URLs
         if (urlObj.hostname === 'cdn.jsdelivr.net' &&
@@ -716,7 +746,10 @@ const rewritePhosphorUrl = (url: string): string => {
                     // Validate style and icon name
                     const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
                     if (validStyles.includes(style) && iconName && /^[a-z0-9-]+$/.test(iconName)) {
-                        return `/api/phosphor-icons/${style}/${iconName}.svg`;
+                        // Prefer proxy only on http(s) origins where /api can exist.
+                        return isHttpOrigin
+                            ? `/api/phosphor-icons/${style}/${iconName}.svg`
+                            : toNpmAssetUrl(style, iconName);
                     }
                 }
             }
@@ -746,7 +779,10 @@ const rewritePhosphorUrl = (url: string): string => {
                     // Validate style and icon name
                     const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
                     if (validStyles.includes(style) && iconName && /^[a-z0-9-]+$/.test(iconName)) {
-                        return `/api/phosphor-icons/${style}/${iconName}.svg`;
+                        // Prefer proxy only on http(s) origins where /api can exist.
+                        return isHttpOrigin
+                            ? `/api/phosphor-icons/${style}/${iconName}.svg`
+                            : toNpmAssetUrl(style, iconName);
                     }
                 }
             }
