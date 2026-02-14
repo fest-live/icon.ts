@@ -6,7 +6,7 @@
 
 # Class: UIPhosphorIcon
 
-Defined in: [loader/Phosphor.ts:41](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L41)
+Defined in: [loader/Phosphor.ts:42](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L42)
 
 ## Extends
 
@@ -20,7 +20,7 @@ Defined in: [loader/Phosphor.ts:41](https://github.com/fest-live/icon.ts/blob/42
 new UIPhosphorIcon(options): UIPhosphorIcon;
 ```
 
-Defined in: [loader/Phosphor.ts:65](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L65)
+Defined in: [loader/Phosphor.ts:66](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L66)
 
 #### Parameters
 
@@ -52,7 +52,7 @@ HTMLElement.constructor
 get icon(): string;
 ```
 
-Defined in: [loader/Phosphor.ts:82](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L82)
+Defined in: [loader/Phosphor.ts:83](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L83)
 
 ##### Returns
 
@@ -64,7 +64,45 @@ Defined in: [loader/Phosphor.ts:82](https://github.com/fest-live/icon.ts/blob/42
 set icon(value): void;
 ```
 
-Defined in: [loader/Phosphor.ts:86](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L86)
+Defined in: [loader/Phosphor.ts:87](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L87)
+
+##### Parameters
+
+###### value
+
+`string`
+
+##### Returns
+
+`void`
+
+***
+
+### iconBase
+
+#### Get Signature
+
+```ts
+get iconBase(): string;
+```
+
+Defined in: [loader/Phosphor.ts:148](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L148)
+
+Optional base URL for same-origin icon hosting.
+Example: icon-base="/assets/phosphor"
+Will be tried before CDNs.
+
+##### Returns
+
+`string`
+
+#### Set Signature
+
+```ts
+set iconBase(value): void;
+```
+
+Defined in: [loader/Phosphor.ts:152](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L152)
 
 ##### Parameters
 
@@ -86,7 +124,7 @@ Defined in: [loader/Phosphor.ts:86](https://github.com/fest-live/icon.ts/blob/42
 get iconStyle(): string;
 ```
 
-Defined in: [loader/Phosphor.ts:97](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L97)
+Defined in: [loader/Phosphor.ts:98](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L98)
 
 ##### Returns
 
@@ -98,7 +136,7 @@ Defined in: [loader/Phosphor.ts:97](https://github.com/fest-live/icon.ts/blob/42
 set iconStyle(value): void;
 ```
 
-Defined in: [loader/Phosphor.ts:101](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L101)
+Defined in: [loader/Phosphor.ts:102](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L102)
 
 ##### Parameters
 
@@ -120,7 +158,7 @@ Defined in: [loader/Phosphor.ts:101](https://github.com/fest-live/icon.ts/blob/4
 get size(): string | null;
 ```
 
-Defined in: [loader/Phosphor.ts:112](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L112)
+Defined in: [loader/Phosphor.ts:113](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L113)
 
 ##### Returns
 
@@ -132,7 +170,7 @@ Defined in: [loader/Phosphor.ts:112](https://github.com/fest-live/icon.ts/blob/4
 set size(value): void;
 ```
 
-Defined in: [loader/Phosphor.ts:116](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L116)
+Defined in: [loader/Phosphor.ts:117](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L117)
 
 ##### Parameters
 
@@ -154,7 +192,7 @@ Defined in: [loader/Phosphor.ts:116](https://github.com/fest-live/icon.ts/blob/4
 get width(): string | null;
 ```
 
-Defined in: [loader/Phosphor.ts:127](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L127)
+Defined in: [loader/Phosphor.ts:128](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L128)
 
 ##### Returns
 
@@ -166,7 +204,7 @@ Defined in: [loader/Phosphor.ts:127](https://github.com/fest-live/icon.ts/blob/4
 set width(value): void;
 ```
 
-Defined in: [loader/Phosphor.ts:131](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L131)
+Defined in: [loader/Phosphor.ts:132](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L132)
 
 ##### Parameters
 
@@ -188,7 +226,7 @@ Defined in: [loader/Phosphor.ts:131](https://github.com/fest-live/icon.ts/blob/4
 get static observedAttributes(): string[];
 ```
 
-Defined in: [loader/Phosphor.ts:42](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L42)
+Defined in: [loader/Phosphor.ts:43](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L43)
 
 ##### Returns
 
@@ -205,7 +243,7 @@ attributeChangedCallback(
    newValue): void;
 ```
 
-Defined in: [loader/Phosphor.ts:183](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L183)
+Defined in: [loader/Phosphor.ts:204](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L204)
 
 #### Parameters
 
@@ -233,7 +271,7 @@ Defined in: [loader/Phosphor.ts:183](https://github.com/fest-live/icon.ts/blob/4
 connectedCallback(): void;
 ```
 
-Defined in: [loader/Phosphor.ts:142](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L142)
+Defined in: [loader/Phosphor.ts:163](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L163)
 
 #### Returns
 
@@ -247,7 +285,7 @@ Defined in: [loader/Phosphor.ts:142](https://github.com/fest-live/icon.ts/blob/4
 disconnectedCallback(): void;
 ```
 
-Defined in: [loader/Phosphor.ts:175](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L175)
+Defined in: [loader/Phosphor.ts:196](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L196)
 
 #### Returns
 
@@ -261,7 +299,7 @@ Defined in: [loader/Phosphor.ts:175](https://github.com/fest-live/icon.ts/blob/4
 updateIcon(icon?): UIPhosphorIcon;
 ```
 
-Defined in: [loader/Phosphor.ts:241](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/Phosphor.ts#L241)
+Defined in: [loader/Phosphor.ts:271](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/Phosphor.ts#L271)
 
 #### Parameters
 

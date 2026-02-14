@@ -10,7 +10,7 @@
 function clearIconRules(): void;
 ```
 
-Defined in: [loader/CSSIconRegistry.ts:245](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/CSSIconRegistry.ts#L245)
+Defined in: [loader/CSSIconRegistry.ts:506](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/CSSIconRegistry.ts#L506)
 
 Clears all registered icon rules
 Useful for hot reload or cache invalidation

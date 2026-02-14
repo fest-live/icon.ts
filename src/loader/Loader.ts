@@ -117,6 +117,14 @@ const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
 export type DevicePixelSize = { inline: number; block: number };
 
 const globalScope = typeof globalThis !== "undefined" ? (globalThis as { location?: Location }) : {};
+const hasChromeRuntime = (): boolean => {
+    try {
+        const chromeRuntime = (globalThis as any)?.chrome?.runtime;
+        return !!chromeRuntime?.id;
+    } catch {
+        return false;
+    }
+};
 
 const pickBaseUrl = (): string | undefined => {
     try {
@@ -694,6 +702,7 @@ const rewritePhosphorUrl = (url: string): string => {
             const proto = (globalScope.location as any)?.protocol || "";
             return proto === "http:" || proto === "https:";
         })();
+        const isExtensionRuntime = hasChromeRuntime();
 
         const toNpmAssetUrl = (style: string, baseName: string) => {
             // For duotone icons, append '-duotone' to the filename
@@ -708,12 +717,12 @@ const rewritePhosphorUrl = (url: string): string => {
 
         const urlObj = new URL(url);
 
-        // If we are not on an http(s) origin (e.g. chrome-extension://, file://),
-        // `/api/phosphor-icons/...` is not a real endpoint. Rewrite it to the CDN.
-        if (!isHttpOrigin && urlObj.pathname.startsWith("/api/phosphor-icons/")) {
-            const parts = urlObj.pathname.split("/").filter(Boolean); // ["api","phosphor-icons",style,name.svg]
-            const style = parts[2] || "duotone";
-            const fileName = parts[3] || "";
+        // In extension runtimes (including content scripts on http(s) pages),
+        // `/assets/icons/phosphor/...` is not guaranteed to exist. Rewrite to CDN.
+        if ((isExtensionRuntime || !isHttpOrigin) && urlObj.pathname.startsWith("/assets/icons/phosphor/")) {
+            const parts = urlObj.pathname.split("/").filter(Boolean); // ["assets","icons","phosphor",style,name.svg]
+            const style = parts[3] || "duotone";
+            const fileName = parts[4] || "";
             const baseName = fileName.replace(/\.svg$/i, "");
             const validStyles = ["thin", "light", "regular", "bold", "fill", "duotone"];
             if (validStyles.includes(style) && baseName && /^[a-z0-9-]+$/.test(baseName)) {
@@ -746,9 +755,9 @@ const rewritePhosphorUrl = (url: string): string => {
                     // Validate style and icon name
                     const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
                     if (validStyles.includes(style) && iconName && /^[a-z0-9-]+$/.test(iconName)) {
-                        // Prefer proxy only on http(s) origins where /api can exist.
-                        return isHttpOrigin
-                            ? `/api/phosphor-icons/${style}/${iconName}.svg`
+                        // Prefer proxy only on non-extension http(s) origins where /api exists.
+                        return (isHttpOrigin && !isExtensionRuntime)
+                            ? `/assets/icons/phosphor/${style}/${iconName}.svg`
                             : toNpmAssetUrl(style, iconName);
                     }
                 }
@@ -779,9 +788,9 @@ const rewritePhosphorUrl = (url: string): string => {
                     // Validate style and icon name
                     const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
                     if (validStyles.includes(style) && iconName && /^[a-z0-9-]+$/.test(iconName)) {
-                        // Prefer proxy only on http(s) origins where /api can exist.
-                        return isHttpOrigin
-                            ? `/api/phosphor-icons/${style}/${iconName}.svg`
+                        // Prefer proxy only on non-extension http(s) origins where /api exists.
+                        return (isHttpOrigin && !isExtensionRuntime)
+                            ? `/assets/icons/phosphor/${style}/${iconName}.svg`
                             : toNpmAssetUrl(style, iconName);
                     }
                 }

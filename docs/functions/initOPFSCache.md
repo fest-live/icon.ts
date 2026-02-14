@@ -10,7 +10,7 @@
 function initOPFSCache(): Promise<boolean>;
 ```
 
-Defined in: [loader/OPFSCache.ts:63](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/OPFSCache.ts#L63)
+Defined in: [loader/OPFSCache.ts:65](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/OPFSCache.ts#L65)
 
 Initializes the OPFS cache directories
 

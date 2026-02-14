@@ -312,7 +312,7 @@ export class UIPhosphorIcon extends HTMLElement {
 
         // Try direct CDN first (most reliable), then proxy (without suffix - proxy adds it), then local
         const directCdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${iconFileName}.svg`;
-        const proxyCdnPath = `/api/phosphor-icons/${iconStyle}/${ICON}.svg`; // Proxy expects base name, adds suffix
+        const proxyCdnPath = `/assets/icons/phosphor/${iconStyle}/${ICON}.svg`; // Proxy expects base name, adds suffix
         const base = (this.iconBase ?? "").trim().replace(/\/+$/, "");
         const localPath = base ? `${base}/${iconStyle}/${iconFileName}.svg` : "";
         const requestKey = `${iconStyle}:${ICON}`;

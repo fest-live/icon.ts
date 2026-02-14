@@ -10,7 +10,7 @@
 function clearIconCache(): Promise<void>;
 ```
 
-Defined in: [loader/OPFSCache.ts:301](https://github.com/fest-live/icon.ts/blob/422782168fe6d2023c032f8a018d0191f594741e/src/loader/OPFSCache.ts#L301)
+Defined in: [loader/OPFSCache.ts:322](https://github.com/fest-live/icon.ts/blob/17b1c815b863bca7c041b37cdec15672902e03dc/src/loader/OPFSCache.ts#L322)
 
 Clears all cached icons
 

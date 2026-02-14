@@ -64,6 +64,14 @@ let pendingRules: Array<{ selector: string; cssText: string; key: string }> = []
 let flushScheduled = false;
 
 const ICON_PROXY_PATH = "/api/icon-proxy";
+const isChromeExtensionRuntime = (): boolean => {
+    try {
+        const chromeRuntime = (globalThis as any)?.chrome?.runtime;
+        return !!chromeRuntime?.id;
+    } catch {
+        return false;
+    }
+};
 
 const tryRewriteCrossOriginUrlToProxy = (rawUrl: string): string | null => {
     if (!rawUrl || typeof rawUrl !== "string") return null;
@@ -78,6 +86,10 @@ const tryRewriteCrossOriginUrlToProxy = (rawUrl: string): string | null => {
 
     // Only rewrite absolute cross-origin URLs.
     if (!/^https?:/i.test(trimmed)) return trimmed;
+
+    // In extension runtimes (popup/options/content-script), don't rewrite to /api.
+    // Such endpoint is app-specific and usually unavailable there.
+    if (isChromeExtensionRuntime()) return trimmed;
 
     try {
         if (typeof location === "undefined" || typeof URL !== "function") return trimmed;
