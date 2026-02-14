@@ -563,7 +563,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         });
 
         // Also reinitialize on focus to handle tab switching
-        window.addEventListener('focus', () => {
+        globalThis.addEventListener('focus', () => {
             if (!iconStyleSheet) {
                 reinitializeRegistry();
             }
