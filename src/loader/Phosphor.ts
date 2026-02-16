@@ -38,6 +38,38 @@ const capitalizeFirstLetter = (str: unknown) => {
     return str.charAt(0).toUpperCase() + str.slice(1);
 };
 
+const summarizeIconUrlForLog = (value: unknown, previewLength = 140): unknown => {
+    if (typeof value !== "string") { return value; }
+    if (!value) { return value; }
+
+    if (value.startsWith("data:")) {
+        const mimeMatch = /^data:([^;,]+)[;,]/.exec(value);
+        const mimeType = mimeMatch?.[1] || "application/octet-stream";
+        return `[data-url ${mimeType}, length=${value.length}]`;
+    }
+
+    if (value.length > previewLength) {
+        return `${value.slice(0, previewLength)}... [truncated ${value.length - previewLength} chars]`;
+    }
+
+    return value;
+};
+
+const iconUrlMetaForLog = (value: unknown): Record<string, unknown> => {
+    if (typeof value !== "string") {
+        return { kind: typeof value, valid: false };
+    }
+
+    const isDataUrl = value.startsWith("data:");
+    const mimeMatch = isDataUrl ? /^data:([^;,]+)[;,]/.exec(value) : null;
+    return {
+        valid: true,
+        type: isDataUrl ? "data-url" : "url",
+        mimeType: mimeMatch?.[1] || undefined,
+        length: value.length
+    };
+};
+
 // @ts-ignore
 export class UIPhosphorIcon extends HTMLElement {
     static get observedAttributes() {
@@ -356,9 +388,12 @@ export class UIPhosphorIcon extends HTMLElement {
                     }
 
                     const url = lastUrl;
-                    console.log(`[ui-icon] Loaded icon ${requestKey} (${localPath ? "local+proxy+fallback" : "proxy+fallback"}):`, url);
+                    console.log(
+                        `[ui-icon] Loaded icon ${requestKey} (${localPath ? "local+proxy+fallback" : "proxy+fallback"}):`,
+                        iconUrlMetaForLog(url)
+                    );
                     if (!url || typeof url !== "string") {
-                        console.warn(`[ui-icon] Invalid URL returned for ${requestKey}:`, url);
+                        console.warn(`[ui-icon] Invalid URL returned for ${requestKey}:`, iconUrlMetaForLog(url));
                         return;
                     }
                     if (this.#maskKeyBase !== requestKey) {
@@ -552,7 +587,7 @@ export class UIPhosphorIcon extends HTMLElement {
             // Generate mask value and register CSS rule
             ensureMaskValue(url, this.#maskKeyBase, bucket)
                 .then((maskValue) => {
-                    console.log(`[ui-icon] Got mask value for ${iconName}:${iconStyle}:`, maskValue);
+                    console.log(`[ui-icon] Got mask value for ${iconName}:${iconStyle}:`, iconUrlMetaForLog(maskValue));
 
                     // Register the icon in CSS registry with attribute-based selector
                     // The rule: ui-icon[icon="name"][icon-style="style"] { --icon-image: ... }
