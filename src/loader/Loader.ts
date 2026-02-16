@@ -718,13 +718,32 @@ const rewritePhosphorUrl = (url: string): string => {
         const urlObj = new URL(url);
 
         // In extension runtimes (including content scripts on http(s) pages),
-        // `/assets/icons/phosphor/...` is not guaranteed to exist. Rewrite to CDN.
-        if ((isExtensionRuntime || !isHttpOrigin) && urlObj.pathname.startsWith("/assets/icons/phosphor/")) {
-            const parts = urlObj.pathname.split("/").filter(Boolean); // ["assets","icons","phosphor",style,name.svg]
-            const style = parts[3] || "duotone";
-            const fileName = parts[4] || "";
-            const baseName = fileName.replace(/\.svg$/i, "");
+        // `/assets/icons/*` aliases may not exist. Rewrite to stable CDN URL.
+        if ((isExtensionRuntime || !isHttpOrigin) && urlObj.pathname.startsWith("/assets/icons/")) {
+            const parts = urlObj.pathname.split("/").filter(Boolean);
             const validStyles = ["thin", "light", "regular", "bold", "fill", "duotone"];
+
+            let style = "duotone";
+            let baseName = "";
+
+            // /assets/icons/phosphor/:style/:icon
+            if (parts[2] === "phosphor") {
+                style = (parts[3] || "duotone").toLowerCase();
+                baseName = (parts[4] || "").replace(/\.svg$/i, "");
+            } else if (parts[2] === "duotone") {
+                // /assets/icons/duotone/:icon
+                style = "duotone";
+                baseName = (parts[3] || "").replace(/\.svg$/i, "");
+            } else if (parts.length >= 4) {
+                // /assets/icons/:style/:icon
+                style = (parts[2] || "duotone").toLowerCase();
+                baseName = (parts[3] || "").replace(/\.svg$/i, "");
+            } else if (parts.length === 3) {
+                // /assets/icons/:icon (default style)
+                style = "duotone";
+                baseName = (parts[2] || "").replace(/\.svg$/i, "");
+            }
+
             if (validStyles.includes(style) && baseName && /^[a-z0-9-]+$/.test(baseName)) {
                 return toNpmAssetUrl(style, baseName);
             }
