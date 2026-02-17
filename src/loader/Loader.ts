@@ -870,19 +870,30 @@ const loadAsImageInternal = async (name: any, creator?: (name: any) => any, atte
             }
 
             // Build a small, correct fallback list (sequential attempts).
+            // If phosphor rewrite points to local proxy and it fails (e.g. 502),
+            // we must still try original CDN source for first-time users.
             const candidates: string[] = [effectiveUrl];
 
-            // jsDelivr -> unpkg (correct path mapping for phosphor assets)
-            if (effectiveUrl.startsWith("https://cdn.jsdelivr.net/npm/")) {
-                const unpkg = effectiveUrl.replace("https://cdn.jsdelivr.net/npm/", "https://unpkg.com/");
-                candidates.push(unpkg);
+            if (effectiveUrl !== resolvedUrl) {
+                candidates.push(resolvedUrl);
             }
 
-            // Only attempt a second mirror if it’s an https URL and not already included.
-            if (effectiveUrl.startsWith("https://") && effectiveUrl.includes("cdn.jsdelivr.net")) {
-                const mirror = effectiveUrl.replace("cdn.jsdelivr.net", "unpkg.com").replace("/npm/", "/");
-                if (!candidates.includes(mirror)) {
-                    candidates.push(mirror);
+            // Add CDN mirrors for every candidate that points to jsDelivr.
+            for (const candidate of [...candidates]) {
+                // jsDelivr -> unpkg (correct path mapping for phosphor assets)
+                if (candidate.startsWith("https://cdn.jsdelivr.net/npm/")) {
+                    const unpkg = candidate.replace("https://cdn.jsdelivr.net/npm/", "https://unpkg.com/");
+                    if (!candidates.includes(unpkg)) {
+                        candidates.push(unpkg);
+                    }
+                }
+
+                // Only attempt a second mirror if it’s an https URL and not already included.
+                if (candidate.startsWith("https://") && candidate.includes("cdn.jsdelivr.net")) {
+                    const mirror = candidate.replace("cdn.jsdelivr.net", "unpkg.com").replace("/npm/", "/");
+                    if (!candidates.includes(mirror)) {
+                        candidates.push(mirror);
+                    }
                 }
             }
 
