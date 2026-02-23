@@ -137,3 +137,11 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# ── Compiled TS artifacts in source trees (must never be committed) ──────────
+src/**/*.js
+src/**/*.jsx
+src/**/*.js.map
+**/src/**/*.js
+**/src/**/*.jsx
+**/src/**/*.js.map

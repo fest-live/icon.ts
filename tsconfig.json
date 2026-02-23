@@ -1,19 +1,44 @@
 {
-    "include": ["./src/**/*.ts", "./src/*.ts"],
+    "include": [
+        "./src/**/*.ts",
+        "./src/*.ts"
+    ],
+    "exclude": [
+        "./dist/**/*",
+        "./externals/**/*",
+        "./src/**/*.js",
+        "./src/**/*.jsx"
+    ],
     "compilerOptions": {
         "outDir": "./dist/",
         "paths": {
-            "@phosphor-icons/core/assets/*": ["./node_modules/@phosphor-icons/core/assets/*"],
-            "fonts/*": ["../../shared/assets/fonts/*"],
-            "fest/*": ["../../shared/fest/*"],
-            "fest/cdnImport": ["../../cdnImport.mjs"],
-            "fest/polyfill/*": ["../../shared/fest/polyfill/*"],
-            "polyfill/*": ["../../shared/fest/polyfill/*"]
+            "@phosphor-icons/core/assets/*": [
+                "./node_modules/@phosphor-icons/core/assets/*"
+            ],
+            "fonts/*": [
+                "../../shared/assets/fonts/*"
+            ],
+            "fest/*": [
+                "../../shared/fest/*"
+            ],
+            "fest/cdnImport": [
+                "../../cdnImport.mjs"
+            ],
+            "fest/polyfill/*": [
+                "../../shared/fest/polyfill/*"
+            ],
+            "polyfill/*": [
+                "../../shared/fest/polyfill/*"
+            ]
         },
         "target": "ESNext",
         "module": "ESNext",
         "moduleResolution": "bundler",
-        "lib": ["ESNext", "DOM", "WebWorker"],
+        "lib": [
+            "ESNext",
+            "DOM",
+            "WebWorker"
+        ],
         "esModuleInterop": true,
         "strict": true,
         "forceConsistentCasingInFileNames": true,
@@ -29,7 +54,13 @@
         "inlineSources": true,
         "inlineSourceMap": true,
         "sourceMap": false,
-        "typeRoots": ["plugins/global.d.ts"],
-        "experimentalDecorators": true
-    }
+        "typeRoots": [
+            "plugins/global.d.ts"
+        ],
+        "experimentalDecorators": true,
+        "noEmit": true,
+        "noEmitOnError": true,
+        "noEmitHelpers": true
+    },
+    "compileOnSave": false
 }
