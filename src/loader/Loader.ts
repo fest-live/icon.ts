@@ -774,10 +774,8 @@ const rewritePhosphorUrl = (url: string): string => {
                     // Validate style and icon name
                     const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
                     if (validStyles.includes(style) && iconName && /^[a-z0-9-]+$/.test(iconName)) {
-                        // Prefer proxy only on non-extension http(s) origins where /api exists.
-                        return (isHttpOrigin && !isExtensionRuntime)
-                            ? `/assets/icons/phosphor/${style}/${iconName}.svg`
-                            : toNpmAssetUrl(style, iconName);
+                        // Prefer direct CDN asset URL to avoid noisy proxy 502 storms.
+                        return toNpmAssetUrl(style, iconName);
                     }
                 }
             }
@@ -807,10 +805,8 @@ const rewritePhosphorUrl = (url: string): string => {
                     // Validate style and icon name
                     const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
                     if (validStyles.includes(style) && iconName && /^[a-z0-9-]+$/.test(iconName)) {
-                        // Prefer proxy only on non-extension http(s) origins where /api exists.
-                        return (isHttpOrigin && !isExtensionRuntime)
-                            ? `/assets/icons/phosphor/${style}/${iconName}.svg`
-                            : toNpmAssetUrl(style, iconName);
+                        // Prefer direct CDN asset URL to avoid noisy proxy 502 storms.
+                        return toNpmAssetUrl(style, iconName);
                     }
                 }
             }

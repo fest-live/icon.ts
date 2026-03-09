@@ -342,9 +342,8 @@ export class UIPhosphorIcon extends HTMLElement {
                             iconStyle !== 'regular' ? `${ICON}-${iconStyle}` :
                             ICON;
 
-        // Try direct CDN first (most reliable), then proxy (without suffix - proxy adds it), then local
+        // Try direct CDN first (most reliable), then optional local override.
         const directCdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${iconFileName}.svg`;
-        const proxyCdnPath = `/assets/icons/phosphor/${iconStyle}/${ICON}.svg`; // Proxy expects base name, adds suffix
         const base = (this.iconBase ?? "").trim().replace(/\/+$/, "");
         const localPath = base ? `${base}/${iconStyle}/${iconFileName}.svg` : "";
         const requestKey = `${iconStyle}:${ICON}`;
@@ -367,7 +366,7 @@ export class UIPhosphorIcon extends HTMLElement {
             });
 
             if (shouldLoad) {
-                const sources = (localPath ? [directCdnPath, proxyCdnPath, localPath] : [directCdnPath, proxyCdnPath]);
+                const sources = (localPath ? [directCdnPath, localPath] : [directCdnPath]);
                 (async () => {
                     let lastUrl: string | null = null;
                     let lastError: unknown = null;
@@ -389,7 +388,7 @@ export class UIPhosphorIcon extends HTMLElement {
 
                     const url = lastUrl;
                     console.log(
-                        `[ui-icon] Loaded icon ${requestKey} (${localPath ? "local+proxy+fallback" : "proxy+fallback"}):`,
+                        `[ui-icon] Loaded icon ${requestKey} (${localPath ? "local+fallback" : "fallback"}):`,
                         iconUrlMetaForLog(url)
                     );
                     if (!url || typeof url !== "string") {
