@@ -19,11 +19,11 @@ import styles from "./Phosphor.scss?inline";
 import {
     ensureMaskValue,
     loadAsImage,
+    prefetchIcon,
     FALLBACK_ICON_DATA_URL,
     MIN_RASTER_SIZE,
     quantizeToBucket,
     camelToKebab,
-    generateIconImageVariable,
     registerIconRule,
     hasIconRule,
     type DevicePixelSize,
@@ -36,23 +36,6 @@ const createStyle = preloadStyle(styles);
 const capitalizeFirstLetter = (str: unknown) => {
     if (typeof str !== "string" || str.length === 0) { return str; }
     return str.charAt(0).toUpperCase() + str.slice(1);
-};
-
-const summarizeIconUrlForLog = (value: unknown, previewLength = 140): unknown => {
-    if (typeof value !== "string") { return value; }
-    if (!value) { return value; }
-
-    if (value.startsWith("data:")) {
-        const mimeMatch = /^data:([^;,]+)[;,]/.exec(value);
-        const mimeType = mimeMatch?.[1] || "application/octet-stream";
-        return `[data-url ${mimeType}, length=${value.length}]`;
-    }
-
-    if (value.length > previewLength) {
-        return `${value.slice(0, previewLength)}... [truncated ${value.length - previewLength} chars]`;
-    }
-
-    return value;
 };
 
 const iconUrlMetaForLog = (value: unknown): Record<string, unknown> => {
@@ -300,6 +283,28 @@ export class UIPhosphorIcon extends HTMLElement {
     static readonly #MAX_ICON_RETRIES = 3;
     static readonly #RETRY_DELAY_MS = 500;
 
+    /** Same-origin paths first, then CDN (Loader races mirrors with concurrency 2). */
+    #phosphorSourcesForIcon(nextIcon: string): { sources: string[]; requestKey: string } | null {
+        let iconStyle = (this.iconStyle ?? "duotone")?.trim?.()?.toLowerCase?.();
+        const ICON = camelToKebab(nextIcon);
+        if (!ICON || !/^[a-z0-9-]+$/.test(ICON)) {
+            console.warn(`[ui-icon] Invalid icon name: ${ICON}`);
+            return null;
+        }
+        const validStyles = ["thin", "light", "regular", "bold", "fill", "duotone"];
+        if (!validStyles.includes(iconStyle)) {
+            console.warn(`[ui-icon] Invalid icon style: ${iconStyle}, defaulting to 'duotone'`);
+            iconStyle = "duotone";
+        }
+        const iconFileName =
+            iconStyle === "duotone" ? `${ICON}-duotone` : iconStyle !== "regular" ? `${ICON}-${iconStyle}` : ICON;
+        const directCdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${iconFileName}.svg`;
+        const base = (this.iconBase ?? "").trim().replace(/\/+$/, "");
+        const localPath = base ? `${base}/${iconStyle}/${iconFileName}.svg` : "";
+        const sources = localPath ? [localPath, directCdnPath] : [directCdnPath];
+        return { sources, requestKey: `${iconStyle}:${ICON}` };
+    }
+
     public updateIcon(icon?: string) {
         const candidate = typeof icon === "string" && icon.length > 0 ? icon : this.icon;
         const nextIcon = candidate?.trim?.() ?? "";
@@ -311,116 +316,92 @@ export class UIPhosphorIcon extends HTMLElement {
 
         if (typeof IntersectionObserver !== "undefined" && !this.#isIntersecting) {
             this.#pendingIconName = nextIcon;
+            if (nextIcon) {
+                const prePack = this.#phosphorSourcesForIcon(nextIcon);
+                if (prePack) {
+                    for (const src of prePack.sources) {
+                        prefetchIcon(src);
+                    }
+                }
+            }
             return this;
         }
 
         this.#pendingIconName = null;
 
-        if (!nextIcon) { return this; }
-
-        let iconStyle = (this.iconStyle ?? "duotone")?.trim?.()?.toLowerCase?.();
-        const ICON = camelToKebab(nextIcon);
-        // Use CDN for Phosphor icons (npm package assets; stable paths)
-        // Example:
-        // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/duotone/folder-open-duotone.svg
-        // Validate icon name to prevent invalid requests
-        if (!ICON || !/^[a-z0-9-]+$/.test(ICON)) {
-            console.warn(`[ui-icon] Invalid icon name: ${ICON}`);
+        if (!nextIcon) {
             return this;
         }
 
-        // Validate icon style
-        const validStyles = ['thin', 'light', 'regular', 'bold', 'fill', 'duotone'];
-        if (!validStyles.includes(iconStyle)) {
-            console.warn(`[ui-icon] Invalid icon style: ${iconStyle}, defaulting to 'duotone'`);
-            iconStyle = 'duotone';
+        const pack = this.#phosphorSourcesForIcon(nextIcon);
+        if (!pack) {
+            return this;
         }
 
-        // For duotone icons, append '-duotone' to the filename
-        // For other styles like 'fill', 'bold', etc., append '-{style}'
-        const iconFileName = iconStyle === 'duotone' ? `${ICON}-duotone` :
-                            iconStyle !== 'regular' ? `${ICON}-${iconStyle}` :
-                            ICON;
-
-        // Try direct CDN first (most reliable), then optional local override.
-        const directCdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${iconFileName}.svg`;
-        const base = (this.iconBase ?? "").trim().replace(/\/+$/, "");
-        const localPath = base ? `${base}/${iconStyle}/${iconFileName}.svg` : "";
-        const requestKey = `${iconStyle}:${ICON}`;
-
+        const { sources, requestKey } = pack;
         this.#maskKeyBase = requestKey;
 
         requestAnimationFrame(() => {
-            // Always attempt to load if we don't have a current icon URL, or if we're intersecting
-            const shouldLoad = !this.#currentIconUrl || this.#isIntersecting ||
+            const shouldLoad =
+                !this.#currentIconUrl ||
+                this.#isIntersecting ||
                 (this?.checkVisibility?.({
                     contentVisibilityAuto: true,
                     opacityProperty: true,
                     visibilityProperty: true,
-                }) ?? true);
+                }) ??
+                    true);
 
-            console.log(`[ui-icon] Checking load conditions for ${requestKey}:`, {
-                hasCurrentUrl: !!this.#currentIconUrl,
-                isIntersecting: this.#isIntersecting,
-                shouldLoad
-            });
-
-            if (shouldLoad) {
-                const sources = (localPath ? [directCdnPath, localPath] : [directCdnPath]);
-                (async () => {
-                    let lastUrl: string | null = null;
-                    let lastError: unknown = null;
-
-                    for (const src of sources) {
-                        try {
-                            const url = await loadAsImage(src);
-                            lastUrl = url;
-
-                            // If local source returns fallback placeholder, try the CDN next.
-                            if (src === localPath && url === FALLBACK_ICON_DATA_URL) {
-                                continue;
-                            }
-                            break;
-                        } catch (e) {
-                            lastError = e;
-                        }
-                    }
-
-                    const url = lastUrl;
-                    console.log(
-                        `[ui-icon] Loaded icon ${requestKey} (${localPath ? "local+fallback" : "fallback"}):`,
-                        iconUrlMetaForLog(url)
-                    );
-                    if (!url || typeof url !== "string") {
-                        console.warn(`[ui-icon] Invalid URL returned for ${requestKey}:`, iconUrlMetaForLog(url));
-                        return;
-                    }
-                    if (this.#maskKeyBase !== requestKey) {
-                        console.log(`[ui-icon] Ignoring outdated request for ${requestKey}`);
-                        return;
-                    }
-                    this.#currentIconUrl = url;
-                    this.#retryAttempt = 0;
-                    this.#queueMaskUpdate();
-
-                    // If both sources failed and we ended up with fallback, keep the old retry behavior for timeouts.
-                    if (url === FALLBACK_ICON_DATA_URL && lastError instanceof Error) {
-                        const isTimeout = lastError.message.includes("Timeout");
-                        if (isTimeout && this.#retryAttempt < UIPhosphorIcon.#MAX_ICON_RETRIES && this.isConnected) {
-                            this.#retryAttempt++;
-                            setTimeout(() => {
-                                if (this.isConnected && this.#maskKeyBase === requestKey) {
-                                    this.updateIcon(nextIcon);
-                                }
-                            }, UIPhosphorIcon.#RETRY_DELAY_MS * this.#retryAttempt);
-                        }
-                    }
-                })().catch((error) => {
-                    if (typeof console !== "undefined") {
-                        console.error?.("[ui-icon] Failed to load icon sources", { directCdnPath, proxyCdnPath, localPath }, error);
-                    }
-                });
+            if (!shouldLoad) {
+                return;
             }
+
+            (async () => {
+                let lastUrl: string | null = null;
+                let lastError: unknown = null;
+                const localPath = sources.length > 1 ? sources[0] : "";
+
+                for (const src of sources) {
+                    try {
+                        const url = await loadAsImage(src, undefined, { fetchPriority: "high" });
+                        lastUrl = url;
+                        if (src === localPath && url === FALLBACK_ICON_DATA_URL) {
+                            continue;
+                        }
+                        break;
+                    } catch (e) {
+                        lastError = e;
+                    }
+                }
+
+                const url = lastUrl;
+                if (!url || typeof url !== "string") {
+                    console.warn(`[ui-icon] Invalid URL returned for ${requestKey}:`, iconUrlMetaForLog(url));
+                    return;
+                }
+                if (this.#maskKeyBase !== requestKey) {
+                    return;
+                }
+                this.#currentIconUrl = url;
+                this.#retryAttempt = 0;
+                this.#queueMaskUpdate();
+
+                if (url === FALLBACK_ICON_DATA_URL && lastError instanceof Error) {
+                    const isTimeout = lastError.message.includes("Timeout");
+                    if (isTimeout && this.#retryAttempt < UIPhosphorIcon.#MAX_ICON_RETRIES && this.isConnected) {
+                        this.#retryAttempt++;
+                        setTimeout(() => {
+                            if (this.isConnected && this.#maskKeyBase === requestKey) {
+                                this.updateIcon(nextIcon);
+                            }
+                        }, UIPhosphorIcon.#RETRY_DELAY_MS * this.#retryAttempt);
+                    }
+                }
+            })().catch((error) => {
+                if (typeof console !== "undefined") {
+                    console.error?.("[ui-icon] Failed to load icon sources", { sources }, error);
+                }
+            });
         });
 
         return this;
@@ -452,7 +433,7 @@ export class UIPhosphorIcon extends HTMLElement {
                     this.updateIcon(this.#pendingIconName ?? this.icon);
                 }
             }
-        }, { rootMargin: "100px" });
+        }, { rootMargin: "200px" });
 
         console.log(`[ui-icon] Starting observation`);
         this.#intersectionObserver.observe(this);
@@ -460,10 +441,6 @@ export class UIPhosphorIcon extends HTMLElement {
         // Handle content-visibility
         // @ts-ignore
         this.addEventListener("contentvisibilityautostatechange", this.#handleContentVisibility);
-
-        // Initially assume intersecting to allow loading
-        console.log(`[ui-icon] Setting initial intersecting state to true`);
-        this.#isIntersecting = true;
     }
 
     #teardownVisibilityObserver() {

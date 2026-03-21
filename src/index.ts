@@ -17,6 +17,8 @@ export {
     invalidateIconCache,
     testIconRacing,
     debugIconSystem,
+    prefetchIcon,
+    type IconLoadOptions,
 } from "./loader/Loader";
 
 // CSS-based icon registry utilities

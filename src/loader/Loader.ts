@@ -27,8 +27,11 @@ export const MAX_RASTER_SIZE = 512;
 export const MIN_RASTER_SIZE = 32;
 
 // Timeout and retry queue configuration
-// Increased timeout for mobile/slow networks
-const FETCH_TIMEOUT_MS = 5000;
+const FETCH_TIMEOUT_MS = 4500;
+/** Parallel fetch attempts per wave (same icon, multiple mirrors). */
+const ICON_FETCH_PARALLEL = 2;
+/** OPFS read budget — slightly above micro-task to avoid false misses on slow storage. */
+const OPFS_READ_BUDGET_MS = 120;
 const RETRY_DELAY_MS = 1000; // Progressive delay
 const MAX_RETRIES = 5; // More retries for unreliable networks
 
@@ -59,7 +62,14 @@ const isSlowConnection = (): boolean => {
 };
 
 // Delayed retry queue
-type QueuedItem = { name: string; creator?: (name: any) => any; resolve: (v: string) => void; reject: (e: Error) => void; retries: number };
+type QueuedItem = {
+    name: string;
+    creator?: (name: any) => any;
+    resolve: (v: string) => void;
+    reject: (e: Error) => void;
+    retries: number;
+    loadOpts?: IconLoadOptions;
+};
 const retryQueue: QueuedItem[] = [];
 let retryScheduled = false;
 
@@ -87,7 +97,7 @@ const processRetryQueue = () => {
         // Add progressive delay for retries
         const delay = RETRY_DELAY_MS * Math.pow(1.5, item.retries - 1);
         setTimeout(() => {
-            loadAsImageInternal(item.name, item.creator, item.retries)
+            loadAsImageInternal(item.name, item.creator, item.retries, item.loadOpts)
                 .then(item.resolve)
                 .catch((error) => {
                     // Enhanced error logging for debugging
@@ -104,6 +114,102 @@ const processRetryQueue = () => {
         const nextDelay = isSlowConnection() ? RETRY_DELAY_MS * 2 : RETRY_DELAY_MS;
         setTimeout(processRetryQueue, nextDelay);
     }
+};
+
+const promiseAny = async <T,>(items: Promise<T>[]): Promise<T> => {
+    if (items.length === 0) {
+        return Promise.reject(new Error("promiseAny: empty"));
+    }
+    const anyFn = (Promise as unknown as { any?: (p: Promise<T>[]) => Promise<T> }).any;
+    if (typeof anyFn === "function") {
+        return anyFn.call(Promise, items);
+    }
+    return new Promise<T>((resolve, reject) => {
+        let pending = items.length;
+        const errors: Error[] = [];
+        for (const p of items) {
+            void Promise.resolve(p).then(resolve, (e: unknown) => {
+                errors.push(e instanceof Error ? e : new Error(String(e)));
+                pending -= 1;
+                if (pending <= 0) {
+                    reject(new AggregateError(errors, "All promises rejected"));
+                }
+            });
+        }
+    });
+};
+
+const getLocationOrigin = (): string => {
+    try {
+        return String(globalScope.location?.origin || "").trim();
+    } catch {
+        return "";
+    }
+};
+
+const isSameOriginAbsoluteUrl = (url: string): boolean => {
+    const origin = getLocationOrigin();
+    if (!origin || !url) return false;
+    try {
+        return new URL(url, origin).origin === origin;
+    } catch {
+        return false;
+    }
+};
+
+/** Prefer same-origin (local / icon-base) URLs, then cross-origin CDNs. */
+const sortCandidatesSameOriginFirst = (urls: string[]): string[] => {
+    const same: string[] = [];
+    const other: string[] = [];
+    const seen = new Set<string>();
+    for (const u of urls) {
+        if (!u || seen.has(u)) continue;
+        seen.add(u);
+        (isSameOriginAbsoluteUrl(u) ? same : other).push(u);
+    }
+    return [...same, ...other];
+};
+
+/**
+ * Try URLs in waves of `ICON_FETCH_PARALLEL`; first successful SVG wins.
+ */
+export type IconLoadOptions = {
+    /** Browser fetch priority hint (Chromium). Prefetch uses `low`. */
+    fetchPriority?: "high" | "low";
+};
+
+const fetchSvgFirstWaveWin = async (
+    urls: string[],
+    timeoutMs: number,
+    fetchOpts?: IconLoadOptions
+): Promise<{ blob: Blob; url: string }> => {
+    const errors: Error[] = [];
+    for (let i = 0; i < urls.length; i += ICON_FETCH_PARALLEL) {
+        const wave = urls.slice(i, i + ICON_FETCH_PARALLEL);
+        try {
+            const winner = await promiseAny(
+                wave.map((url) =>
+                    fetchSvgBlob(url, timeoutMs, fetchOpts).then((blob) => {
+                        if (!blob || blob.size === 0) {
+                            throw new Error("Empty SVG response");
+                        }
+                        return { blob, url };
+                    })
+                )
+            );
+            return winner;
+        } catch (e) {
+            const agg = e as AggregateError;
+            if (agg?.errors?.length) {
+                for (const err of agg.errors) {
+                    errors.push(err instanceof Error ? err : new Error(String(err)));
+                }
+            } else {
+                errors.push(e instanceof Error ? e : new Error(String(e)));
+            }
+        }
+    }
+    throw new Error(`All icon sources failed: ${errors.map((x) => x.message).join("; ")}`);
 };
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
@@ -568,16 +674,22 @@ export const rasterizeSVG = (blob: Blob | string)=>{ return isPathURL(blob) ? re
  * Fetches SVG content with a hard timeout and abort support.
  * This prevents “fetch storms” from piling up and timing out later.
  */
-const fetchSvgBlob = async (url: string, timeoutMs: number): Promise<Blob> => {
+const fetchSvgBlob = async (url: string, timeoutMs: number, opts?: IconLoadOptions): Promise<Blob> => {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
     try {
-        const response = await fetch(url, {
+        const init: RequestInit & { priority?: string } = {
             credentials: "omit",
             mode: "cors",
             signal: controller?.signal,
-        });
+        };
+        if (opts?.fetchPriority === "low") {
+            init.priority = "low";
+        } else if (opts?.fetchPriority === "high") {
+            init.priority = "high";
+        }
+        const response = await fetch(url, init);
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status} ${response.statusText}`);
@@ -835,7 +947,12 @@ const isClientErrorStatus = (error: unknown): boolean => {
 // Internal loader with retry support
 // Internal loader with retry support
 
-const loadAsImageInternal = async (name: any, creator?: (name: any) => any, attempt = 0): Promise<string> => {
+const loadAsImageInternal = async (
+    name: any,
+    creator?: (name: any) => any,
+    attempt = 0,
+    loadOpts?: IconLoadOptions
+): Promise<string> => {
     if (isPathURL(name)) {
         const resolvedUrl = resolveAssetUrl(name);
 
@@ -854,9 +971,9 @@ const loadAsImageInternal = async (name: any, creator?: (name: any) => any, atte
             // Try OPFS cache first (fast, local, avoids network storms).
             if (isOPFSSupported()) {
                 try {
-                    const cached = await withTimeout(getCachedVectorIcon(effectiveUrl), 50);
+                    const cached = await withTimeout(getCachedVectorIcon(effectiveUrl), OPFS_READ_BUDGET_MS);
                     if (cached) {
-                        const blob = await fetchSvgBlob(cached, FETCH_TIMEOUT_MS);
+                        const blob = await fetchSvgBlob(cached, FETCH_TIMEOUT_MS, loadOpts);
                         const svgText = await blob.text();
                         return toSvgDataUrl(svgText);
                     }
@@ -893,30 +1010,20 @@ const loadAsImageInternal = async (name: any, creator?: (name: any) => any, atte
                 }
             }
 
-            const errors: Error[] = [];
-            for (const url of candidates) {
-                try {
-                    const blob = await fetchSvgBlob(url, FETCH_TIMEOUT_MS);
-                    if (blob.size > 1024 * 1024) {
-                        throw new Error(`Blob too large (${blob.size} bytes)`);
-                    }
-                    const svgText = await blob.text();
-                    const dataUrl = toSvgDataUrl(svgText);
+            const ordered = sortCandidatesSameOriginFirst(candidates);
+            const { blob } = await fetchSvgFirstWaveWin(ordered, FETCH_TIMEOUT_MS, loadOpts);
+            if (blob.size > 1024 * 1024) {
+                throw new Error(`Blob too large (${blob.size} bytes)`);
+            }
+            const svgText = await blob.text();
+            const dataUrl = toSvgDataUrl(svgText);
 
-                    // Cache vector SVG for the canonical URL in background (best-effort),
-                    // even if we succeeded via a mirror.
-                    if (isOPFSSupported()) {
-                        cacheVectorIcon(effectiveUrl, blob).catch(() => { /* silent */ });
-                    }
-
-                    return dataUrl;
-                } catch (e) {
-                    const err = e instanceof Error ? e : new Error(String(e));
-                    errors.push(new Error(`${url}: ${err.message}`));
-                }
+            // OPFS: only persist successful payloads (canonical key = effectiveUrl).
+            if (isOPFSSupported()) {
+                cacheVectorIcon(effectiveUrl, blob).catch(() => { /* silent */ });
             }
 
-            throw new Error(`All icon sources failed: ${errors.map(e => e.message).join("; ")}`);
+            return dataUrl;
 
         } catch (error) {
             console.warn(`[ui-icon] Failed to load icon: ${effectiveUrl}`, error);
@@ -925,7 +1032,7 @@ const loadAsImageInternal = async (name: any, creator?: (name: any) => any, atte
             if (attempt < MAX_RETRIES && !isClientErrorStatus(error)) {
                 console.log(`[ui-icon] Queueing retry ${attempt + 1} for ${effectiveUrl}`);
                 return new Promise((resolve, reject) => {
-                    retryQueue.push({ name, creator, resolve, reject, retries: attempt + 1 });
+                    retryQueue.push({ name, creator, resolve, reject, retries: attempt + 1, loadOpts });
                     scheduleRetryQueue();
                 });
             }
@@ -947,7 +1054,7 @@ const loadAsImageInternal = async (name: any, creator?: (name: any) => any, atte
         const element = await (creator ? creator?.(name) : name);
         if (isPathURL(element)) {
             // Recurse to get OPFS caching for path URLs
-            return loadAsImageInternal(element, undefined, attempt);
+            return loadAsImageInternal(element, undefined, attempt, loadOpts);
         }
         let file: any = name;
         if (element instanceof Blob || element instanceof File) { file = element; }
@@ -965,7 +1072,7 @@ const loadAsImageInternal = async (name: any, creator?: (name: any) => any, atte
         // On timeout, queue for retry if not exceeded max retries
         if (attempt < MAX_RETRIES && error instanceof Error && error.message === "Timeout") {
             return new Promise((resolve, reject) => {
-                retryQueue.push({ name, creator, resolve, reject, retries: attempt + 1 });
+                retryQueue.push({ name, creator, resolve, reject, retries: attempt + 1, loadOpts });
                 scheduleRetryQueue();
             });
         }
@@ -973,10 +1080,46 @@ const loadAsImageInternal = async (name: any, creator?: (name: any) => any, atte
     }
 };
 
-export const loadAsImage = async (name: any, creator?: (name: any) => any): Promise<string> => {
-    if (isPathURL(name)) { name = resolveAssetUrl(name) || name; }
+export const loadAsImage = async (
+    name: any,
+    creator?: (name: any) => any,
+    loadOpts?: IconLoadOptions
+): Promise<string> => {
+    if (isPathURL(name)) {
+        name = resolveAssetUrl(name) || name;
+    }
     // @ts-ignore // !experimental `getOrInsert` feature!
-    return iconMap.getOrInsertComputed(name, () => loadAsImageInternal(name, creator, 0));
+    return iconMap.getOrInsertComputed(name, () => loadAsImageInternal(name, creator, 0, loadOpts));
+};
+
+/**
+ * Warm vector cache (OPFS + in-memory) for an icon URL without blocking the main path.
+ * Uses idle scheduling and low fetch priority when supported. Failed loads are not cached.
+ */
+export const prefetchIcon = (url: string): void => {
+    if (!url || typeof url !== "string") {
+        return;
+    }
+    const resolved = isPathURL(url) ? resolveAssetUrl(url) || url : url;
+    if (!resolved || resolved.startsWith("data:")) {
+        return;
+    }
+    if (iconMap.has(resolved)) {
+        return;
+    }
+    const run = (): void => {
+        if (iconMap.has(resolved)) {
+            return;
+        }
+        void loadAsImage(resolved, undefined, { fetchPriority: "low" }).catch(() => {
+            /* failures must not populate OPFS */
+        });
+    };
+    if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(run, { timeout: 4000 });
+    } else {
+        setTimeout(run, 32);
+    }
 };
 
 /**
