@@ -11,6 +11,10 @@ import {
     hasIconRule,
 } from "./CSSIconRegistry";
 
+import { FALLBACK_ICON_DATA_URL } from "./fallback-icon-data-url";
+
+export { FALLBACK_ICON_DATA_URL };
+
 //
 //import * as icons from "lucide";
 export const iconMap = new Map<string, Promise<string>>();
@@ -606,6 +610,19 @@ export const camelToKebab = (camel: string) => {
         .toLowerCase();
 };
 
+/** Pin to published npm tag so CDN asset paths resolve (major-only @2 often 404s). */
+export const PHOSPHOR_CORE_NPM_VERSION = "2.1.1";
+
+/** Phosphor file stems differ from common UI labels (e.g. tab “History”). */
+const PHOSPHOR_KEBAB_ALIASES: Record<string, string> = {
+    history: "clock-counter-clockwise",
+};
+
+export const resolvePhosphorIconFileBase = (iconName: string): string => {
+    const k = camelToKebab(iconName);
+    return PHOSPHOR_KEBAB_ALIASES[k] ?? k;
+};
+
 /**
  * Creates an image-set CSS value for resolution-aware icons.
  * Used by the CSS registry for generating rules.
@@ -727,18 +744,6 @@ const tryLoadFromVectorCache = async (canonicalUrl: string): Promise<string | nu
 };
 
 /**
- * Fallback icon SVG (used when all icon sources fail).
- *
- * Note: This is used as a CSS mask, so we prefer solid filled shapes and avoid
- * odd self-intersections that can look like “artifacts” at small sizes.
- */
-const FALLBACK_SVG_TEXT = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path fill="currentColor" fill-rule="evenodd" d="M6 2a4 4 0 0 0-4 4v12a4 4 0 0 0 4 4h12a4 4 0 0 0 4-4V6a4 4 0 0 0-4-4H6zm0 2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" clip-rule="evenodd"/>
-  <path fill="currentColor" d="M11 7h2v7h-2z"/>
-  <path fill="currentColor" d="M11 16h2v2h-2z"/>
-</svg>`;
-
-/**
  * Validates and converts SVG text to data URL
  */
 const toSvgDataUrl = (svgText: string): string => {
@@ -789,22 +794,12 @@ const toSvgDataUrl = (svgText: string): string => {
     }
 };
 
-const FALLBACK_SVG_DATA_URL = (() => {
-    try {
-        return toSvgDataUrl(FALLBACK_SVG_TEXT);
-    } catch {
-        return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FALLBACK_SVG_TEXT)}`;
-    }
-})();
-
-export const FALLBACK_ICON_DATA_URL = FALLBACK_SVG_DATA_URL;
-
 const rewritePhosphorUrl = (url: string): string => {
     // Legacy (broken) format used previously:
     // - https://cdn.jsdelivr.net/gh/phosphor-icons/phosphor-icons/src/{style}/{name}.svg
     //
     // Correct/stable format (npm package assets):
-    // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/{style}/{name}.svg
+    // - https://cdn.jsdelivr.net/npm/@phosphor-icons/core@<version>/assets/{style}/{name}.svg
     //
     // Keep this rewrite conservative: only rewrite known phosphor patterns.
     if (!url || typeof url !== 'string') return url;
@@ -817,14 +812,15 @@ const rewritePhosphorUrl = (url: string): string => {
         const isExtensionRuntime = hasChromeRuntime();
 
         const toNpmAssetUrl = (style: string, baseName: string) => {
+            const resolvedBase = resolvePhosphorIconFileBase(baseName);
             // For duotone icons, append '-duotone' to the filename
             // For other styles like 'fill', 'bold', etc., append '-{style}'
             const iconFileName = style === "duotone"
-                ? `${baseName}-duotone`
+                ? `${resolvedBase}-duotone`
                 : style !== "regular"
-                    ? `${baseName}-${style}`
-                    : baseName;
-            return `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${style}/${iconFileName}.svg`;
+                    ? `${resolvedBase}-${style}`
+                    : resolvedBase;
+            return `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@${PHOSPHOR_CORE_NPM_VERSION}/assets/${style}/${iconFileName}.svg`;
         };
 
         const urlObj = new URL(url);
@@ -1046,7 +1042,7 @@ const loadAsImageInternal = async (
 
             // Final fallback: return a simple placeholder SVG
             console.warn(`[ui-icon] All loading methods failed, using fallback SVG for: ${effectiveUrl}`, error);
-            return FALLBACK_SVG_DATA_URL;
+            return FALLBACK_ICON_DATA_URL;
         }
     }
 

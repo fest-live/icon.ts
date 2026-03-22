@@ -16,14 +16,16 @@ export const preloadStyle = (srcCode: string) => {
 
 // @ts-ignore – Vite inline import
 import styles from "./Phosphor.scss?inline";
+import { FALLBACK_ICON_DATA_URL } from "./fallback-icon-data-url";
 import {
     ensureMaskValue,
     loadAsImage,
     prefetchIcon,
-    FALLBACK_ICON_DATA_URL,
     MIN_RASTER_SIZE,
     quantizeToBucket,
     camelToKebab,
+    PHOSPHOR_CORE_NPM_VERSION,
+    resolvePhosphorIconFileBase,
     registerIconRule,
     hasIconRule,
     type DevicePixelSize,
@@ -286,7 +288,7 @@ export class UIPhosphorIcon extends HTMLElement {
     /** Same-origin paths first, then CDN (Loader races mirrors with concurrency 2). */
     #phosphorSourcesForIcon(nextIcon: string): { sources: string[]; requestKey: string } | null {
         let iconStyle = (this.iconStyle ?? "duotone")?.trim?.()?.toLowerCase?.();
-        const ICON = camelToKebab(nextIcon);
+        const ICON = resolvePhosphorIconFileBase(nextIcon);
         if (!ICON || !/^[a-z0-9-]+$/.test(ICON)) {
             console.warn(`[ui-icon] Invalid icon name: ${ICON}`);
             return null;
@@ -298,7 +300,7 @@ export class UIPhosphorIcon extends HTMLElement {
         }
         const iconFileName =
             iconStyle === "duotone" ? `${ICON}-duotone` : iconStyle !== "regular" ? `${ICON}-${iconStyle}` : ICON;
-        const directCdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2/assets/${iconStyle}/${iconFileName}.svg`;
+        const directCdnPath = `https://cdn.jsdelivr.net/npm/@phosphor-icons/core@${PHOSPHOR_CORE_NPM_VERSION}/assets/${iconStyle}/${iconFileName}.svg`;
         const base = (this.iconBase ?? "").trim().replace(/\/+$/, "");
         const localPath = base ? `${base}/${iconStyle}/${iconFileName}.svg` : "";
         const sources = localPath ? [localPath, directCdnPath] : [directCdnPath];
