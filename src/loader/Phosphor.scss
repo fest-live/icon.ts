@@ -1,16 +1,17 @@
-@property --icon-image {
-    syntax: "<image>";
-    inherits: true;
-    initial-value: linear-gradient(#0000, #0000);
-}
-
-@property --icon-color {
-    syntax: "<color>";
-    inherits: true;
-    initial-value: #fff;
-}
-
+/* ui-icon (Phosphor): one layer — static duotone map + :host mask pipeline (no network for mapped icons). */
 @layer ui-icon {
+    @property --icon-image {
+        syntax: "<image>";
+        inherits: true;
+        initial-value: linear-gradient(transparent, transparent);
+    }
+
+    @property --icon-color {
+        syntax: "<color>";
+        inherits: true;
+        initial-value: #fff;
+    }
+
     :host(ui-icon) {
         & {
             --icon-size: 1.25rem;
@@ -53,25 +54,33 @@
             interactivity: inert;
         }
 
+        /* Masked glyph: SVG from --icon-image (static map or fetched data URL) + fill from --icon-color */
         &::before {
             opacity: 1 !important;
             filter: none !important;
             backdrop-filter: none !important;
             content: "";
-            display: flex;
+            display: block;
             inline-size: stretch;
             block-size: stretch;
             aspect-ratio: 1 / 1 !important;
             content-visibility: visible;
+            overflow: visible;
             background-color: var(--icon-color, currentColor) !important;
-            mask-image: var(--icon-image, linear-gradient(#0000, #0000)) !important;
-            color: var(--icon-color, currentColor) !important;
+            mask-image: var(--icon-image, linear-gradient(transparent, transparent)) !important;
             mask-repeat: no-repeat;
             mask-origin: content-box;
             mask-clip: content-box;
             mask-position: center;
             mask-size: contain;
             mask-type: alpha;
+            -webkit-mask-image: var(--icon-image, linear-gradient(transparent, transparent)) !important;
+            -webkit-mask-repeat: no-repeat;
+            -webkit-mask-origin: content-box;
+            -webkit-mask-clip: content-box;
+            -webkit-mask-position: center;
+            -webkit-mask-size: contain;
+            color: var(--icon-color, currentColor) !important;
             object-fit: contain;
             object-position: center;
             line-height: 0;
@@ -85,10 +94,33 @@
             interactivity: inert;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
-            overflow: hidden;
             transform: translateZ(0);
             transform-origin: 50% 50%;
             backface-visibility: hidden;
         }
+
+        /* Optional overlay: set --icon-after-* on host or use for gradients */
+        &::after {
+            content: none;
+            display: block;
+            grid-area: 1 / 1;
+            pointer-events: none;
+            place-self: center;
+            inline-size: stretch;
+            block-size: stretch;
+            aspect-ratio: 1 / 1;
+            opacity: var(--icon-after-opacity, 0);
+            background: var(--icon-after-background, none);
+            mask-image: var(--icon-after-mask, none);
+            -webkit-mask-image: var(--icon-after-mask, none);
+            mask-size: contain;
+            mask-repeat: no-repeat;
+            mask-position: center;
+            -webkit-mask-size: contain;
+            -webkit-mask-repeat: no-repeat;
+            -webkit-mask-position: center;
+        }
     }
+
+    @import "./generated/phosphor-duotone-map.scss";
 }

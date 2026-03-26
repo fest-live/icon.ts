@@ -30,15 +30,10 @@ import {
     hasIconRule,
     type DevicePixelSize,
 } from "./Loader";
+import { PHOSPHOR_DUOTONE_STATIC } from "./generated/phosphor-duotone-known.ts";
 
 //
 const createStyle = preloadStyle(styles);
-
-// Handle non-string or empty inputs gracefully
-const capitalizeFirstLetter = (str: unknown) => {
-    if (typeof str !== "string" || str.length === 0) { return str; }
-    return str.charAt(0).toUpperCase() + str.slice(1);
-};
 
 const iconUrlMetaForLog = (value: unknown): Record<string, unknown> => {
     if (typeof value !== "string") {
@@ -195,18 +190,11 @@ export class UIPhosphorIcon extends HTMLElement {
             this.setAttribute("icon-style", this.#options.iconStyle);
         }
 
-        // Force load any pending icon immediately when connected
         const pendingIcon = this.#pendingIconName ?? this.icon;
-        console.log(`[ui-icon] Element connected, pending icon: ${pendingIcon}, current icon: ${this.icon}`);
-
         if (pendingIcon) {
-            console.log(`[ui-icon] Loading pending icon: ${pendingIcon}`);
             this.updateIcon(pendingIcon);
         } else if (this.icon) {
-            console.log(`[ui-icon] Loading current icon: ${this.icon}`);
             this.updateIcon(this.icon);
-        } else {
-            console.log(`[ui-icon] No icon to load`);
         }
     }
 
@@ -316,24 +304,39 @@ export class UIPhosphorIcon extends HTMLElement {
             return this;
         }
 
+        if (!nextIcon) {
+            this.#pendingIconName = null;
+            this.#currentIconUrl = "";
+            this.#maskKeyBase = "";
+            return this;
+        }
+
+        const kebab = resolvePhosphorIconFileBase(nextIcon);
+        const styleKey = (this.iconStyle ?? "duotone").trim().toLowerCase();
+        if (
+            kebab &&
+            /^[a-z0-9-]+$/i.test(kebab) &&
+            styleKey === "duotone" &&
+            PHOSPHOR_DUOTONE_STATIC.has(kebab)
+        ) {
+            this.#pendingIconName = null;
+            this.#currentIconUrl = "";
+            this.#maskKeyBase = "";
+            return this;
+        }
+
         if (typeof IntersectionObserver !== "undefined" && !this.#isIntersecting) {
             this.#pendingIconName = nextIcon;
-            if (nextIcon) {
-                const prePack = this.#phosphorSourcesForIcon(nextIcon);
-                if (prePack) {
-                    for (const src of prePack.sources) {
-                        prefetchIcon(src);
-                    }
+            const prePack = this.#phosphorSourcesForIcon(nextIcon);
+            if (prePack) {
+                for (const src of prePack.sources) {
+                    prefetchIcon(src);
                 }
             }
             return this;
         }
 
         this.#pendingIconName = null;
-
-        if (!nextIcon) {
-            return this;
-        }
 
         const pack = this.#phosphorSourcesForIcon(nextIcon);
         if (!pack) {
@@ -410,34 +413,26 @@ export class UIPhosphorIcon extends HTMLElement {
     }
 
     #setupVisibilityObserver() {
-        console.log(`[ui-icon] Setting up visibility observer`);
-
         if (typeof IntersectionObserver === "undefined") {
-            console.log(`[ui-icon] IntersectionObserver not available, setting intersecting to true`);
             this.#isIntersecting = true;
             return;
         }
 
         if (this.#intersectionObserver) {
-            console.log(`[ui-icon] Visibility observer already exists`);
             return;
         }
 
-        console.log(`[ui-icon] Creating new IntersectionObserver`);
         this.#intersectionObserver = new IntersectionObserver((entries) => {
             const isIntersecting = entries.some((entry) => entry.isIntersecting);
-            console.log(`[ui-icon] IntersectionObserver callback: isIntersecting=${isIntersecting}, was=${this.#isIntersecting}`);
 
             if (isIntersecting !== this.#isIntersecting) {
                 this.#isIntersecting = isIntersecting;
                 if (isIntersecting) {
-                    console.log(`[ui-icon] Element became visible, updating icon`);
                     this.updateIcon(this.#pendingIconName ?? this.icon);
                 }
             }
         }, { rootMargin: "200px" });
 
-        console.log(`[ui-icon] Starting observation`);
         this.#intersectionObserver.observe(this);
 
         // Handle content-visibility
@@ -495,9 +490,7 @@ export class UIPhosphorIcon extends HTMLElement {
             this.style.setProperty("--icon-size", (typeof sizeAttr === "number" || /^\d+$/.test(sizeAttr)) ? `${sizeAttr}px` : sizeAttr);
         }
 
-        // Note: --icon-image is now set via CSS rules with attribute selectors
-        // e.g., ui-icon[icon="house"][icon-style="duotone"] { --icon-image: image-set(...); }
-        // No inline style needed - the CSS registry handles it lazily
+        /* Duotone icons: static --icon-image from Phosphor.scss generated map; other styles via Loader + CSSIconRegistry. */
     }
 
     #setupResizeObserver(element: HTMLElement) {
@@ -565,14 +558,8 @@ export class UIPhosphorIcon extends HTMLElement {
             // Generate mask value and register CSS rule
             ensureMaskValue(url, this.#maskKeyBase, bucket)
                 .then((maskValue) => {
-                    console.log(`[ui-icon] Got mask value for ${iconName}:${iconStyle}:`, iconUrlMetaForLog(maskValue));
-
-                    // Register the icon in CSS registry with attribute-based selector
-                    // The rule: ui-icon[icon="name"][icon-style="style"] { --icon-image: ... }
                     registerIconRule(iconName, iconStyle, maskValue, bucket);
-                    console.log(`[ui-icon] Registered CSS rule for ${iconName}:${iconStyle}`);
 
-                    // Keep local ref for fallback/debugging
                     if (this.#maskRef.value !== maskValue) {
                         this.#maskRef.value = maskValue;
                     }
@@ -619,6 +606,5 @@ declare global {
 }
 
 if (typeof window !== "undefined" && !customElements.get("ui-icon")) {
-    console.log(UIPhosphorIcon);
     customElements.define("ui-icon", UIPhosphorIcon);
 }

@@ -1,3 +1,5 @@
+import { isBundledPhosphorDuotone } from "./phosphor-bundled-duotone";
+
 /**
  * CSS-based Icon Registry
  *
@@ -410,6 +412,10 @@ export const registerIconRule = (
     imageUrl: string,
     bucket: number = MIN_RASTER_SIZE,
 ): void => {
+    if (isBundledPhosphorDuotone(iconName, iconStyle)) {
+        return;
+    }
+
     const key = makeRuleKey(iconName, iconStyle, bucket);
 
     // Skip if already registered
@@ -468,6 +474,10 @@ export const registerResponsiveIconRule = (
     baseUrl: string,
     bucketUrls: Map<number, string>,
 ): void => {
+    if (isBundledPhosphorDuotone(iconName, iconStyle)) {
+        return;
+    }
+
     const selector = makeSelector(iconName, iconStyle);
 
     // Register base rule
