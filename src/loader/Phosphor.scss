@@ -1,3 +1,7 @@
+@use "sass:meta";
+
+@layer ui-icon, ui-icon-reset;
+
 /* ui-icon (Phosphor): one layer — static duotone map + :host mask pipeline (no network for mapped icons). */
 @layer ui-icon {
     @property --icon-image {
@@ -15,7 +19,7 @@
     :host(ui-icon) {
         & {
             --icon-size: 1.25rem;
-            --icon-color: currentColor;
+            --icon-color: currentcolor;
             --icon-padding: 0.125rem;
         }
 
@@ -121,6 +125,6 @@
             -webkit-mask-position: center;
         }
     }
-
-    @import "./generated/phosphor-duotone-map.scss";
 }
+
+@include meta.load-css("./generated/phosphor-duotone-map");

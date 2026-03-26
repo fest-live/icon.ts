@@ -2,16 +2,15 @@
 export const preloadStyle = (srcCode: string) => {
     const content = typeof srcCode === "string" ? srcCode?.trim?.() : "";
     if (!content) { return () => null as HTMLStyleElement | null; }
-    const styleURL = URL.createObjectURL(new Blob([content], {type: "text/css"}));
 
     //
     if (typeof document === "undefined") { return null; }
     const styleEl = document.createElement("style");
     styleEl.setAttribute("data-ui-phosphor-icon", "true");
-    styleEl.innerHTML = `@import url("${styleURL}");`;
+    styleEl.textContent = content;
 
     //
-    return () => styleEl?.cloneNode?.(true);;
+    return () => styleEl?.cloneNode?.(true);
 };
 
 // @ts-ignore – Vite inline import
@@ -30,7 +29,7 @@ import {
     hasIconRule,
     type DevicePixelSize,
 } from "./Loader";
-import { PHOSPHOR_DUOTONE_STATIC } from "./generated/phosphor-duotone-known.ts";
+import { PHOSPHOR_DUOTONE_STATIC } from "./generated/phosphor-duotone-known";
 
 //
 const createStyle = preloadStyle(styles);
@@ -74,6 +73,7 @@ export class UIPhosphorIcon extends HTMLElement {
     #pendingIconName: string | null = null;
     #intersectionObserver?: IntersectionObserver;
     #isIntersecting = false;
+    #intersectionStateKnown = false;
 
     constructor(
         options: Partial<{ icon: string; iconStyle: string; padding: number | string }> = {},
@@ -204,6 +204,7 @@ export class UIPhosphorIcon extends HTMLElement {
         this.#teardownVisibilityObserver();
         this.#queuedMaskUpdate = null;
         this.#retryAttempt = 0;
+        this.#intersectionStateKnown = false;
     }
 
     attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null) {
@@ -325,7 +326,11 @@ export class UIPhosphorIcon extends HTMLElement {
             return this;
         }
 
-        if (typeof IntersectionObserver !== "undefined" && !this.#isIntersecting) {
+        if (
+            typeof IntersectionObserver !== "undefined" &&
+            this.#intersectionStateKnown &&
+            !this.#isIntersecting
+        ) {
             this.#pendingIconName = nextIcon;
             const prePack = this.#phosphorSourcesForIcon(nextIcon);
             if (prePack) {
@@ -415,6 +420,7 @@ export class UIPhosphorIcon extends HTMLElement {
     #setupVisibilityObserver() {
         if (typeof IntersectionObserver === "undefined") {
             this.#isIntersecting = true;
+            this.#intersectionStateKnown = true;
             return;
         }
 
@@ -424,6 +430,7 @@ export class UIPhosphorIcon extends HTMLElement {
 
         this.#intersectionObserver = new IntersectionObserver((entries) => {
             const isIntersecting = entries.some((entry) => entry.isIntersecting);
+            this.#intersectionStateKnown = true;
 
             if (isIntersecting !== this.#isIntersecting) {
                 this.#isIntersecting = isIntersecting;

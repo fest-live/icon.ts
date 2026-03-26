@@ -286,8 +286,9 @@ export const ensureStyleSheet = (): CSSStyleSheet | null => {
 
     //
     iconStyleSheet.insertRule(`@property --icon-image { syntax: "<image>"; inherits: true; initial-value: linear-gradient(#0000, #0000); }`, iconStyleSheet.cssRules.length);
-    iconStyleSheet.insertRule(`:where(ui-icon), :host(ui-icon) { --icon-image: linear-gradient(#0000, #0000); }`, iconStyleSheet.cssRules.length);
-    iconStyleSheet.insertRule(`:where(ui-icon:not([icon])), :where(ui-icon[icon=""]), :host(ui-icon:not([icon])), :host(ui-icon[icon=""]) { background-color: transparent; }`, iconStyleSheet.cssRules.length);
+    // Fallback must be limited to empty icon states; a global default here can
+    // override mapped/generated icon variables due to layer ordering differences.
+    iconStyleSheet.insertRule(`:where(ui-icon:not([icon])), :where(ui-icon[icon=""]), :host(ui-icon:not([icon])), :host(ui-icon[icon=""]) { --icon-image: linear-gradient(#0000, #0000); background-color: transparent; }`, iconStyleSheet.cssRules.length);
 
     // Restore any pending rules from localStorage
     restorePendingRules(iconStyleSheet);
