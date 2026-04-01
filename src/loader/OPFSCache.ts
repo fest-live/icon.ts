@@ -26,6 +26,17 @@ let rasterDirHandle: FileSystemDirectoryHandle | null = null;
 let isSupported: boolean | null = null;
 let initPromise: Promise<boolean> | null = null;
 
+const isAllowedProtocolForOPFS = (): boolean => {
+    try {
+        const protocol = String(globalThis?.location?.protocol || "").toLowerCase();
+        // file:// pages have unique origins and frequently reject OPFS access.
+        if (protocol === "file:" || protocol === "about:") return false;
+        return protocol === "https:" || protocol === "http:" || protocol === "chrome-extension:";
+    } catch {
+        return false;
+    }
+};
+
 /**
  * Checks if OPFS is supported in current environment
  */
@@ -38,7 +49,8 @@ export const isOPFSSupported = (): boolean => {
             "storage" in navigator &&
             typeof navigator.storage?.getDirectory === "function" &&
             typeof FileSystemFileHandle !== "undefined" &&
-            typeof FileSystemDirectoryHandle !== "undefined"
+            typeof FileSystemDirectoryHandle !== "undefined" &&
+            isAllowedProtocolForOPFS()
         );
     } catch {
         isSupported = false;
@@ -108,6 +120,10 @@ export const initOPFSCache = async (): Promise<boolean> => {
         } catch (error) {
             if (typeof console !== "undefined") {
                 console.warn?.("[icon-cache] OPFS init failed:", error);
+            }
+            if (error instanceof DOMException && error.name === "SecurityError") {
+                // Permanently disable OPFS cache for this runtime/context.
+                isSupported = false;
             }
             rootHandle = null;
             vectorDirHandle = null;
