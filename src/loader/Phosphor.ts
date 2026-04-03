@@ -49,8 +49,10 @@ const iconUrlMetaForLog = (value: unknown): Record<string, unknown> => {
     };
 };
 
+const HTMLElementBase = ((globalThis as unknown as { HTMLElement?: typeof HTMLElement }).HTMLElement ?? class { }) as typeof HTMLElement;
+
 // @ts-ignore
-export class UIPhosphorIcon extends HTMLElement {
+export class UIPhosphorIcon extends HTMLElementBase {
     static get observedAttributes() {
         return ["icon", "icon-style", "size", "width", "icon-base"];
     }
@@ -612,6 +614,13 @@ declare global {
     }
 }
 
-if (typeof window !== "undefined" && !customElements.get("ui-icon")) {
-    customElements.define("ui-icon", UIPhosphorIcon);
+const customElementsRegistry = (globalThis as unknown as { customElements?: CustomElementRegistry | null }).customElements;
+if (
+    typeof window !== "undefined" &&
+    customElementsRegistry &&
+    typeof customElementsRegistry.get === "function" &&
+    typeof customElementsRegistry.define === "function" &&
+    !customElementsRegistry.get("ui-icon")
+) {
+    customElementsRegistry.define("ui-icon", UIPhosphorIcon);
 }

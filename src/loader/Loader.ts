@@ -236,7 +236,24 @@ const hasChromeRuntime = (): boolean => {
     }
 };
 
+const getExtensionBaseUrl = (): string | undefined => {
+    try {
+        const runtime = (globalThis as any)?.chrome?.runtime;
+        if (runtime?.id && typeof runtime.getURL === "function") {
+            return runtime.getURL("/");
+        }
+    } catch {
+        /* noop */
+    }
+    return undefined;
+};
+
 const pickBaseUrl = (): string | undefined => {
+    const extensionBase = getExtensionBaseUrl();
+    if (extensionBase) {
+        return extensionBase;
+    }
+
     try {
         if (typeof document !== "undefined" && typeof document.baseURI === "string" && document.baseURI !== "about:blank") {
             return document.baseURI;
@@ -1084,8 +1101,13 @@ export const loadAsImage = async (
     if (isPathURL(name)) {
         name = resolveAssetUrl(name) || name;
     }
-    // @ts-ignore // !experimental `getOrInsert` feature!
-    return iconMap.getOrInsertComputed(name, () => loadAsImageInternal(name, creator, 0, loadOpts));
+    const inFlight = iconMap.get(name);
+    if (inFlight) {
+        return inFlight;
+    }
+    const created = loadAsImageInternal(name, creator, 0, loadOpts);
+    iconMap.set(name, created);
+    return created;
 };
 
 /**
