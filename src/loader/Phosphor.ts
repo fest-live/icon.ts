@@ -614,13 +614,13 @@ declare global {
     }
 }
 
-const customElementsRegistry = (globalThis as unknown as { customElements?: CustomElementRegistry | null }).customElements;
+const customElementsRegistry = (globalThis as unknown as { customElements?: CustomElementRegistry | null })?.customElements;
 if (
     typeof window !== "undefined" &&
     customElementsRegistry &&
-    typeof customElementsRegistry.get === "function" &&
-    typeof customElementsRegistry.define === "function" &&
-    !customElementsRegistry.get("ui-icon")
+    typeof customElementsRegistry?.get === "function" &&
+    typeof customElementsRegistry?.define === "function" &&
+    !customElementsRegistry?.get?.("ui-icon")
 ) {
-    customElementsRegistry.define("ui-icon", UIPhosphorIcon);
+    customElementsRegistry?.define?.("ui-icon", UIPhosphorIcon);
 }
