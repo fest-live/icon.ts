@@ -10,10 +10,14 @@
         initial-value: linear-gradient(transparent, transparent);
     }
 
+    /*
+     * WHY: initial #fff made inheriting `--icon-color` paint white glyphs/labels when a
+     * parent set the var without an explicit dark/light ink (active nav pill on light theme).
+     */
     @property --icon-color {
         syntax: "<color>";
         inherits: true;
-        initial-value: #fff;
+        initial-value: #1e293b;
     }
 
     :host(ui-icon) {
