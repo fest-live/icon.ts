@@ -11,24 +11,21 @@
     }
 
     /*
-     * WHY: initial #fff made inheriting `--icon-color` paint white glyphs/labels when a
-     * parent set the var without an explicit dark/light ink (active nav pill on light theme).
+     * WHY: Do NOT register `--icon-color` as `@property <color>`.
+     * A typed property always has an initial concrete color (`#fff` / `#1e293b`), so
+     * `var(--icon-color, currentColor)` never falls back to `currentColor`. Dark chrome
+     * (minimal toolbar, calendar) then painted slate glyphs on dark surfaces → “missing” icons.
+     * Unregistered: parents may set `--icon-color`; otherwise mask fill uses `currentColor`.
      */
-    @property --icon-color {
-        syntax: "<color>";
-        inherits: true;
-        initial-value: #1e293b;
-    }
 
     :host(ui-icon) {
         & {
             --icon-size: 1.25rem;
             --icon-padding: 0.125rem;
             /*
-             * WHY: Do NOT assign `--icon-color: currentcolor` here.
-             * That reset raced/overrode light-DOM ink (SpeedDial `--icon-color: var(--color-on-surface)`),
-             * so launcher glyphs painted white until Settings re-applied theme tokens.
-             * Typed `@property --icon-color` already defaults to `#1e293b`; parents set the real ink.
+             * WHY: Do NOT assign `--icon-color: currentcolor` on :host — that overrides
+             * inherited light-DOM ink (SpeedDial `--icon-color: var(--color-on-surface)`).
+             * Paint via `var(--icon-color, currentColor)` only (see ::before).
              */
         }
 
