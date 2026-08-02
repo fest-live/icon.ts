@@ -23,8 +23,13 @@
     :host(ui-icon) {
         & {
             --icon-size: 1.25rem;
-            --icon-color: currentcolor;
             --icon-padding: 0.125rem;
+            /*
+             * WHY: Do NOT assign `--icon-color: currentcolor` here.
+             * That reset raced/overrode light-DOM ink (SpeedDial `--icon-color: var(--color-on-surface)`),
+             * so launcher glyphs painted white until Settings re-applied theme tokens.
+             * Typed `@property --icon-color` already defaults to `#1e293b`; parents set the real ink.
+             */
         }
 
         & {
