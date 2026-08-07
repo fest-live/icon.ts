@@ -18,13 +18,13 @@
             "fonts/*": [
                 "../../shared/assets/fonts/*"
             ],
-            "fest/*": [
+            "@fest-lib/*": [
                 "../../shared/fest/*"
             ],
-            "fest/cdnImport": [
+            "@fest-lib/cdnImport": [
                 "../../cdnImport.mjs"
             ],
-            "fest/polyfill/*": [
+            "@fest-lib/polyfill/*": [
                 "../../shared/fest/polyfill/*"
             ],
             "polyfill/*": [
