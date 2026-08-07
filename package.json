@@ -40,7 +40,11 @@
         "./package.json": "./package.json"
     },
     "dependencies": {
-        "@phosphor-icons/core": ">=2.1.1"
+        "@phosphor-icons/core": ">=2.1.1",
+        "@fest-lib/core": "github:fest-live/core.ts#main",
+        "@fest-lib/dom": "github:fest-live/dom.ts#main",
+        "@fest-lib/object": "github:fest-live/object.ts#main",
+        "@fest-lib/uniform": "github:fest-live/uniform.ts#main"
     },
     "scripts": {
         "generate:phosphor-map": "node scripts/generate-phosphor-duotone-map.mjs",
