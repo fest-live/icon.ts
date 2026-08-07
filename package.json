@@ -54,7 +54,8 @@
         "docs": "typedoc ./src/index.ts --options ./typedoc.json --out ./docs --tsconfig ./tsconfig.json --excludeExternals --excludePrivate --excludeProtected --skipErrorChecking",
         "docs:clean": "rm -rf ./docs && typedoc --options ./typedoc.json",
         "docs:md": "typedoc --options ./typedoc.md.json",
-        "docs:md:clean": "rm -rf ./docs-md && typedoc --options ./typedoc.md.json"
+        "docs:md:clean": "rm -rf ./docs-md && typedoc --options ./typedoc.md.json",
+        "publish": "npm publish --access public"
     },
     "devDependencies": {
         "@types/node": ">=22.8.1",
