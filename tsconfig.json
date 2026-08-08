@@ -19,16 +19,20 @@
                 "../../shared/assets/fonts/*"
             ],
             "@fest-lib/*": [
-                "../../shared/fest/*"
+                "../../shared/fest/*",
+                "./node_modules/@fest-lib/*"
             ],
             "@fest-lib/cdnImport": [
-                "../../cdnImport.mjs"
+                "../../cdnImport.mjs",
+                "./node_modules/@fest-lib/cdnImport"
             ],
             "@fest-lib/polyfill/*": [
-                "../../shared/fest/polyfill/*"
+                "../../shared/fest/polyfill/*",
+                "./node_modules/@fest-lib/polyfill/*/src/index.ts"
             ],
             "polyfill/*": [
-                "../../shared/fest/polyfill/*"
+                "../../shared/fest/polyfill/*",
+                "./node_modules/polyfill/*/src/index.ts"
             ]
         },
         "target": "ESNext",
