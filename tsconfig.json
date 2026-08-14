@@ -19,20 +19,16 @@
                 "../../shared/assets/fonts/*"
             ],
             "@fest-lib/*": [
-                "../../shared/fest/*",
-                "./node_modules/@fest-lib/*"
+                "../../shared/fest/*"
             ],
             "@fest-lib/cdnImport": [
-                "../../cdnImport.mjs",
-                "./node_modules/@fest-lib/cdnImport"
+                "../../cdnImport.mjs"
             ],
             "@fest-lib/polyfill/*": [
-                "../../shared/fest/polyfill/*",
-                "./node_modules/@fest-lib/polyfill/*/src/index.ts"
+                "../../shared/fest/polyfill/*"
             ],
             "polyfill/*": [
-                "../../shared/fest/polyfill/*",
-                "./node_modules/polyfill/*/src/index.ts"
+                "../../shared/fest/polyfill/*"
             ]
         },
         "target": "ESNext",
@@ -53,11 +49,11 @@
         "allowUnreachableCode": true,
         "allowUnusedLabels": true,
         "noImplicitAny": false,
-        "declaration": false,
         "noImplicitThis": false,
+        "declaration": true,
+        "declarationMap": true,
         "inlineSources": true,
         "inlineSourceMap": true,
-        "sourceMap": false,
         "typeRoots": [
             "plugins/global.d.ts"
         ],
