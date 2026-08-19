@@ -11,7 +11,7 @@
     }
 
     @property --icon-size {
-        syntax: "<length>";
+        syntax: "<length-percentage>";
         inherits: true;
         initial-value: 1.25rem;
     }
@@ -19,7 +19,7 @@
     @property --icon-padding {
         syntax: "<length>";
         inherits: true;
-        initial-value: 0.125rem;
+        initial-value: 0.45rem;
     }
 
     /*
@@ -35,7 +35,8 @@
     :host(ui-icon) {
         & {
             --icon-size: 1.25rem;
-            --icon-padding: 0.25rem;
+            /* Phosphor / Web / PWA — inset inside tile; Android launcher overrides below. */
+            --icon-padding: 0.45rem;
         }
 
         & {
@@ -50,7 +51,6 @@
             place-content: center;
             place-items: center;
             box-sizing: border-box;
-            padding: calc(var(--icon-padding, 0.125) * 1px) !important;
             padding: var(--icon-padding, 0.125rem) !important;
             contain: none;
             content-visibility: visible;
@@ -97,6 +97,10 @@
             mask-position: center;
             mask-size: contain;
             mask-type: luminance;
+            mask-origin: content-box;
+            mask-clip: content-box;
+            -webkit-mask-origin: content-box;
+            -webkit-mask-clip: content-box;
             -webkit-mask-image: var(--icon-image, linear-gradient(transparent, transparent)) !important;
             -webkit-mask-repeat: no-repeat;
             -webkit-mask-origin: content-box;
@@ -140,6 +144,10 @@
             mask-repeat: no-repeat;
             mask-position: center;
             mask-type: luminance;
+            mask-origin: content-box;
+            mask-clip: content-box;
+            -webkit-mask-origin: content-box;
+            -webkit-mask-clip: content-box;
             -webkit-mask-size: contain;
             -webkit-mask-repeat: no-repeat;
             -webkit-mask-position: center;
@@ -177,6 +185,24 @@
     :host([data-launcher-icon]),
     :host(ui-icon[data-launcher-icon]) {
         --icon-padding: 0px;
+        --icon-size: 100%;
+    }
+
+    :host([data-launcher-icon])::before,
+    :host(ui-icon[data-launcher-icon])::before {
+        inline-size: 100%;
+        block-size: 100%;
+        max-inline-size: 100%;
+        max-block-size: 100%;
+        mask-size: cover;
+        -webkit-mask-size: cover;
+    }
+
+    /* PWA manifest bitmap — same inset as Phosphor; not Android launcher tiles */
+    :host([data-icon-bitmap]:not([data-launcher-icon])),
+    :host(ui-icon[data-icon-bitmap]:not([data-launcher-icon])) {
+        --icon-padding: 0.45rem;
+        --icon-size: 100%;
     }
 }
 
