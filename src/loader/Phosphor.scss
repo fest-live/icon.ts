@@ -162,9 +162,26 @@
      * nested `&[attr]` under `:host(ui-icon)` does not match in shadow stylesheets.
      */
 
-    /* Full-color resource icons (Android launcher PNG, PWA manifest) */
-    :host([data-icon-bitmap])::before,
-    :host(ui-icon[data-icon-bitmap])::before {
+    :host([data-launcher-icon]),
+    :host(ui-icon[data-launcher-icon]) {
+        --icon-padding: 0px;
+        --icon-size: 100%;
+    }
+
+    /* Bitmap — luminance mask + exclude invert (light-majority / silhouette). */
+    :host([data-icon-bitmap][data-icon-bitmap-mode="mask-invert"])::before,
+    :host(ui-icon[data-icon-bitmap][data-icon-bitmap-mode="mask-invert"])::before {
+        background-color: var(--icon-color, currentColor) !important;
+        background-image: none;
+        mask-image: var(--icon-resource-image, none), linear-gradient(white, white) !important;
+        -webkit-mask-image: var(--icon-resource-image, none), linear-gradient(white, white) !important;
+        mask-mode: luminance;
+        -webkit-mask-mode: luminance;
+        mask-composite: exclude;
+        -webkit-mask-composite: exclude;
+        mask-size: contain;
+        -webkit-mask-size: contain;
+
         /*background-color: transparent !important;
         color: transparent !important;
         background-image: var(--icon-resource-image, none);
@@ -173,19 +190,20 @@
         background-size: contain;
         mask-image: none !important;
         -webkit-mask-image: none !important;*/
-
-        mask-image: var(--icon-resource-image, none), linear-gradient(white, white) !important;
-        -webkit-mask-image: var(--icon-resource-image, none), linear-gradient(white, white) !important;
-        mask-mode: luminance;
-        -webkit-mask-mode: luminance;
-        mask-composite: exclude;
-        -webkit-mask-composite: exclude;
     }
 
-    :host([data-launcher-icon]),
-    :host(ui-icon[data-launcher-icon]) {
-        --icon-padding: 0px;
-        --icon-size: 100%;
+    
+    /* Bitmap — luminance mask + exclude invert (monochrome / silhouette assets). */
+    :host([data-icon-bitmap][data-icon-bitmap-mode="color"])::before,
+    :host(ui-icon[data-icon-bitmap][data-icon-bitmap-mode="color"])::before {
+        background-color: var(--icon-color, currentColor) !important;
+        background-image: none;
+        mask-image: var(--icon-resource-image, none) !important;
+        -webkit-mask-image: var(--icon-resource-image, none) !important;
+        mask-mode: luminance;
+        -webkit-mask-mode: luminance;
+        mask-size: contain;
+        -webkit-mask-size: contain;
     }
 
     :host([data-launcher-icon])::before,
@@ -194,8 +212,7 @@
         block-size: 100%;
         max-inline-size: 100%;
         max-block-size: 100%;
-        mask-size: cover;
-        -webkit-mask-size: cover;
+        background-size: cover;
     }
 
     /* PWA manifest bitmap — same inset as Phosphor; not Android launcher tiles */

@@ -37,6 +37,91 @@ import { PHOSPHOR_DUOTONE_STATIC } from "./generated/phosphor-duotone-known";
 //
 const createStyle = preloadStyle(styles);
 
+type BitmapPresentationMode = "color" | "mask-invert";
+
+/** Pick CSS bitmap pipeline: full-color PNG vs luminance mask + exclude invert. */
+const detectBitmapPresentationMode = (url: string): Promise<BitmapPresentationMode> => {
+    if (typeof document === "undefined") return Promise.resolve("color");
+
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.decoding = "async";
+        if (/^https?:/i.test(url)) img.crossOrigin = "anonymous";
+        img.onload = () => {
+            try {
+                const sample = 32;
+                const canvas = document.createElement("canvas");
+                canvas.width = sample;
+                canvas.height = sample;
+                const ctx =
+                    canvas.getContext("2d", { willReadFrequently: true }) ||
+                    canvas.getContext("2d");
+                if (!ctx) {
+                    resolve("color");
+                    return;
+                }
+                ctx.clearRect(0, 0, sample, sample);
+                ctx.drawImage(img, 0, 0, sample, sample);
+                const pixels = ctx.getImageData(0, 0, sample, sample).data;
+
+                let opaque = 0;
+                let white = 0;
+                let dark = 0;
+                let chroma = 0;
+                let monochrome = 0;
+                for (let i = 0; i < pixels.length; i += 4) {
+                    const alpha = pixels[i + 3];
+                    if (alpha < 96) continue;
+                    opaque++;
+                    const r = pixels[i];
+                    const g = pixels[i + 1];
+                    const b = pixels[i + 2];
+                    const lum = (0.2126*r + 0.7152*g + 0.0722*b);
+                    const spread = Math.max(r, g, b) - Math.min(r, g, b);
+                    if (spread <= 40) {
+                        if (lum >= 80) {
+                            white++;
+                            monochrome++;
+                        } else {
+                            dark++;
+                            monochrome++;
+                        }
+                    } else {
+                        chroma++;
+                    }
+                }
+
+                if (opaque < 8) {
+                    resolve("mask-invert");
+                    return;
+                }
+
+                const whiteRatio = monochrome > 0 ? white / monochrome : 0;
+                const darkRatio = monochrome > 0 ? dark / monochrome : 0;
+                const chromaRatio = chroma / opaque;
+
+                /* Light-majority glyph / plate — invert so it reads on a dark tile. */
+                if (whiteRatio > 0.3) {
+                    resolve("mask-invert");
+                    return;
+                }
+
+                /* Saturated / mixed app art — keep original colors. */
+                if (chromaRatio > 0.4 || darkRatio > 0.2) {
+                    resolve("color");
+                    return;
+                }
+
+                resolve("mask-invert");
+            } catch {
+                resolve("color");
+            }
+        };
+        img.onerror = () => resolve("color");
+        img.src = url;
+    });
+};
+
 const iconUrlMetaForLog = (value: unknown): Record<string, unknown> => {
     if (typeof value !== "string") {
         return { kind: typeof value, valid: false };
@@ -77,6 +162,7 @@ export class UIPhosphorIcon extends HTMLElementBase {
     #styleAttached = false;
     #pendingIconName: string | null = null;
     #resourceImageUrl = "";
+    #bitmapAnalyzeGen = 0;
     #intersectionObserver?: IntersectionObserver;
     #isIntersecting = false;
     #intersectionStateKnown = false;
@@ -332,10 +418,33 @@ export class UIPhosphorIcon extends HTMLElementBase {
         this.querySelector('img.ui-icon-bitmap[slot="resource"]')?.remove();
         this.shadowRoot?.querySelector("img.ui-icon-bitmap")?.remove();
         this.removeAttribute("data-icon-bitmap");
+        this.removeAttribute("data-icon-bitmap-mode");
+        this.#bitmapAnalyzeGen++;
         this.#resourceImageUrl = "";
         this.style.removeProperty("--icon-resource-image");
         this.style.removeProperty("--icon-image");
         this.removeAttribute("data-icon-source");
+    }
+
+    #applyBitmapPresentationMode(url: string): void {
+        const preset = (this.getAttribute("data-icon-bitmap-mode") ?? "").trim().toLowerCase();
+        if (preset === "mask-invert" && this.hasAttribute("data-icon-bitmap-locked")) {
+            return;
+        }
+        this.setAttribute("data-icon-bitmap-mode", "color");
+        void this.#refineBitmapPresentationMode(url);
+    }
+
+    async #refineBitmapPresentationMode(url: string): Promise<void> {
+        if (this.hasAttribute("data-icon-bitmap-locked")) return;
+
+        const gen = ++this.#bitmapAnalyzeGen;
+        const mode = await detectBitmapPresentationMode(url);
+        if (gen !== this.#bitmapAnalyzeGen) return;
+        if (!this.isConnected || this.#resourceImageUrl !== url) return;
+        if (this.hasAttribute("data-icon-bitmap-locked")) return;
+
+        this.setAttribute("data-icon-bitmap-mode", mode);
     }
 
     /** Paint a full-color PNG/SVG/WebP via `--icon-resource-image` (unregistered; survives blob URLs). */
@@ -354,6 +463,7 @@ export class UIPhosphorIcon extends HTMLElementBase {
         this.#resourceImageUrl = url;
         this.style.setProperty("--icon-resource-image", imageValue);
         this.toggleAttribute("data-icon-bitmap", true);
+        this.#applyBitmapPresentationMode(url);
     }
 
     /** Set a full-color bitmap/SVG URL without stuffing data: URLs into the `icon` attribute. */
