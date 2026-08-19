@@ -640,6 +640,27 @@ export const resolvePhosphorIconFileBase = (iconName: string): string => {
     return PHOSPHOR_KEBAB_ALIASES[k] ?? k;
 };
 
+/** True when `icon` names a Phosphor registry glyph (not a URL / path / data URL). */
+export const isPhosphorIconName = (value: unknown): boolean => {
+    if (typeof value !== "string") return false;
+    const v = value.trim();
+    if (!v) return false;
+    if (v.startsWith("data:") || v.startsWith("blob:")) return false;
+    if (/^https?:\/\//i.test(v)) return false;
+    if (v.startsWith("/") || v.startsWith("./") || v.startsWith("../")) return false;
+    if (/\.(svg|png|jpe?g|webp|gif|avif|ico)(\?|#|$)/i.test(v)) return false;
+    const kebab = resolvePhosphorIconFileBase(v);
+    return Boolean(kebab && /^[a-z0-9-]+$/i.test(kebab));
+};
+
+export const toCssImageUrl = (value: string): string => {
+    const v = String(value || "").trim();
+    if (!v) return "none";
+    if (v.startsWith("url(")) return v;
+    const safe = v.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return `url("${safe}")`;
+};
+
 /**
  * Creates an image-set CSS value for resolution-aware icons.
  * Used by the CSS registry for generating rules.

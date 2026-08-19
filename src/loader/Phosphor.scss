@@ -10,38 +10,48 @@
         initial-value: linear-gradient(transparent, transparent);
     }
 
+    @property --icon-size {
+        syntax: "<length>";
+        inherits: true;
+        initial-value: 1.25rem;
+    }
+
+    @property --icon-padding {
+        syntax: "<length>";
+        inherits: true;
+        initial-value: 0.125rem;
+    }
+
     /*
      * WHY: Do NOT register `--icon-color` as `@property <color>`.
-     * A typed property always has an initial concrete color (`#fff` / `#1e293b`), so
-     * `var(--icon-color, currentColor)` never falls back to `currentColor`. Dark chrome
-     * (minimal toolbar, calendar) then painted slate glyphs on dark surfaces → “missing” icons.
+     * A typed property always has an initial concrete color, so
+     * `var(--icon-color, currentColor)` never falls back to `currentColor`.
      * Unregistered: parents may set `--icon-color`; otherwise mask fill uses `currentColor`.
+     *
+     * WHY: Do NOT register `--icon-resource-image` — blob:/data: URLs via @property
+     * can snap back to initial-value and make Android/PWA icons vanish after ~1s.
      */
 
     :host(ui-icon) {
         & {
             --icon-size: 1.25rem;
-            --icon-padding: 0.125rem;
-            /*
-             * WHY: Do NOT assign `--icon-color: currentcolor` on :host — that overrides
-             * inherited light-DOM ink (SpeedDial `--icon-color: var(--color-on-surface)`).
-             * Paint via `var(--icon-color, currentColor)` only (see ::before).
-             */
+            --icon-padding: 0.25rem;
         }
 
         & {
             display: inline-grid !important;
             background-color: transparent !important;
-            min-block-size: min(var(--icon-size, 1rem), 100%);
-            min-inline-size: min(var(--icon-size, 1rem), 100%);
-            block-size: stretch;
-            inline-size: max-content;
-            max-inline-size: stretch;
-            max-block-size: stretch;
+            inline-size: 100%;
+            block-size: 100%;
+            min-inline-size: 0;
+            min-block-size: 0;
+            max-inline-size: 100%;
+            max-block-size: 100%;
             place-content: center;
             place-items: center;
             box-sizing: border-box;
-            padding: var(--icon-padding, 0.125rem);
+            padding: calc(var(--icon-padding, 0.125) * 1px) !important;
+            padding: var(--icon-padding, 0.125rem) !important;
             contain: none;
             content-visibility: visible;
             mask-image: none;
@@ -73,6 +83,9 @@
             display: block;
             inline-size: stretch;
             block-size: stretch;
+            max-inline-size: var(--icon-size, 100%);
+            max-block-size: var(--icon-size, 100%);
+            grid-area: 1 / 1 !important;
             aspect-ratio: 1 / 1 !important;
             content-visibility: visible;
             overflow: visible;
@@ -83,13 +96,14 @@
             mask-clip: content-box;
             mask-position: center;
             mask-size: contain;
-            mask-type: alpha;
+            mask-type: luminance;
             -webkit-mask-image: var(--icon-image, linear-gradient(transparent, transparent)) !important;
             -webkit-mask-repeat: no-repeat;
             -webkit-mask-origin: content-box;
             -webkit-mask-clip: content-box;
             -webkit-mask-position: center;
             -webkit-mask-size: contain;
+            -webkit-mask-type: luminance;
             color: var(--icon-color, currentColor) !important;
             object-fit: contain;
             object-position: center;
@@ -109,11 +123,10 @@
             backface-visibility: hidden;
         }
 
-        /* Optional overlay: set --icon-after-* on host or use for gradients */
         &::after {
             content: none;
             display: block;
-            grid-area: 1 / 1;
+            grid-area: 1 / 1 !important;
             pointer-events: none;
             place-self: center;
             inline-size: stretch;
@@ -126,10 +139,44 @@
             mask-size: contain;
             mask-repeat: no-repeat;
             mask-position: center;
+            mask-type: luminance;
             -webkit-mask-size: contain;
             -webkit-mask-repeat: no-repeat;
             -webkit-mask-position: center;
+            -webkit-mask-type: luminance;
+            max-inline-size: var(--icon-size, 100%);
+            max-block-size: var(--icon-size, 100%);
         }
+    }
+
+    /*
+     * Host attribute selectors — MUST be `:host([attr])` / `:host(ui-icon[attr])`;
+     * nested `&[attr]` under `:host(ui-icon)` does not match in shadow stylesheets.
+     */
+
+    /* Full-color resource icons (Android launcher PNG, PWA manifest) */
+    :host([data-icon-bitmap])::before,
+    :host(ui-icon[data-icon-bitmap])::before {
+        /*background-color: transparent !important;
+        color: transparent !important;
+        background-image: var(--icon-resource-image, none);
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: contain;
+        mask-image: none !important;
+        -webkit-mask-image: none !important;*/
+
+        mask-image: var(--icon-resource-image, none), linear-gradient(white, white) !important;
+        -webkit-mask-image: var(--icon-resource-image, none), linear-gradient(white, white) !important;
+        mask-mode: luminance;
+        -webkit-mask-mode: luminance;
+        mask-composite: exclude;
+        -webkit-mask-composite: exclude;
+    }
+
+    :host([data-launcher-icon]),
+    :host(ui-icon[data-launcher-icon]) {
+        --icon-padding: 0px;
     }
 }
 

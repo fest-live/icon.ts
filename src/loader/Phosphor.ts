@@ -27,6 +27,9 @@ import {
     resolvePhosphorIconFileBase,
     registerIconRule,
     hasIconRule,
+    isPhosphorIconName,
+    isPathURL,
+    toCssImageUrl,
     type DevicePixelSize,
 } from "./Loader";
 import { PHOSPHOR_DUOTONE_STATIC } from "./generated/phosphor-duotone-known";
@@ -54,7 +57,7 @@ const HTMLElementBase = ((globalThis as unknown as { HTMLElement?: typeof HTMLEl
 // @ts-ignore
 export class UIPhosphorIcon extends HTMLElementBase {
     static get observedAttributes() {
-        return ["icon", "icon-style", "size", "width", "icon-base"];
+        return ["icon", "icon-style", "icon-source", "icon-padding", "size", "width", "icon-base"];
     }
 
     #options: { padding?: number | string; icon?: string; iconStyle?: string } = {
@@ -73,6 +76,7 @@ export class UIPhosphorIcon extends HTMLElementBase {
     #maskRef = { value: "" };
     #styleAttached = false;
     #pendingIconName: string | null = null;
+    #resourceImageUrl = "";
     #intersectionObserver?: IntersectionObserver;
     #isIntersecting = false;
     #intersectionStateKnown = false;
@@ -193,6 +197,12 @@ export class UIPhosphorIcon extends HTMLElementBase {
         }
 
         const pendingIcon = this.#pendingIconName ?? this.icon;
+        if (this.#isResourceIconLocked()) {
+            if (this.#resourceImageUrl) {
+                this.#applyResourceImage(this.#resourceImageUrl);
+            }
+            return;
+        }
         if (pendingIcon) {
             this.updateIcon(pendingIcon);
         } else if (this.icon) {
@@ -214,6 +224,9 @@ export class UIPhosphorIcon extends HTMLElementBase {
 
         switch (name) {
             case "icon": {
+                if (this.#isResourceIconLocked()) {
+                    return;
+                }
                 if (!this.isConnected) {
                     this.#pendingIconName = newValue ?? "";
                     return;
@@ -269,7 +282,156 @@ export class UIPhosphorIcon extends HTMLElementBase {
                 }
                 break;
             }
+            case "icon-source":
+            case "icon-padding": {
+                this.#syncIconSourceFlags();
+                this.#applyIconPaddingAttr();
+                break;
+            }
         }
+    }
+
+    #syncIconSourceFlags(): void {
+        const explicit = (this.getAttribute("icon-source") ?? "").trim().toLowerCase();
+        const iconValue = this.icon.trim();
+        const isResource =
+            explicit === "resource" ||
+            (explicit !== "phosphor" && iconValue.length > 0 && !isPhosphorIconName(iconValue));
+        this.toggleAttribute("data-icon-source", isResource ? true : false);
+        if (isResource) {
+            if (explicit !== "resource") {
+                this.setAttribute("icon-source", "resource");
+            }
+        } else if (explicit === "phosphor") {
+            this.removeAttribute("icon-source");
+        }
+    }
+
+    #applyIconPaddingAttr(): void {
+        const raw = this.getAttribute("icon-padding");
+        if (raw == null || raw === "") {
+            if (!this.#options.padding) {
+                this.style.removeProperty("--icon-padding");
+            }
+            return;
+        }
+        const normalized =
+            /^\d+$/.test(raw.trim()) ? `${raw.trim()}px` : raw.trim();
+        this.style.setProperty("--icon-padding", normalized);
+    }
+
+    #isResourceIconLocked(): boolean {
+        return (
+            this.hasAttribute("data-launcher-icon") ||
+            this.hasAttribute("data-icon-bitmap") ||
+            Boolean(this.#resourceImageUrl)
+        );
+    }
+
+    #clearResourceIconPresentation(): void {
+        this.querySelector('img.ui-icon-bitmap[slot="resource"]')?.remove();
+        this.shadowRoot?.querySelector("img.ui-icon-bitmap")?.remove();
+        this.removeAttribute("data-icon-bitmap");
+        this.#resourceImageUrl = "";
+        this.style.removeProperty("--icon-resource-image");
+        this.style.removeProperty("--icon-image");
+        this.removeAttribute("data-icon-source");
+    }
+
+    /** Paint a full-color PNG/SVG/WebP via `--icon-resource-image` (unregistered; survives blob URLs). */
+    #applyResourceImage(url: string): void {
+        this.#ensureShadowRoot();
+        if (!this.#styleAttached) {
+            const styleNode = createStyle?.() ?? null;
+            if (styleNode) {
+                this.shadowRoot!.appendChild(styleNode);
+            }
+            this.#styleAttached = true;
+        }
+        this.querySelector('img.ui-icon-bitmap[slot="resource"]')?.remove();
+        this.shadowRoot?.querySelector("img.ui-icon-bitmap")?.remove();
+        const imageValue = toCssImageUrl(url);
+        this.#resourceImageUrl = url;
+        this.style.setProperty("--icon-resource-image", imageValue);
+        this.toggleAttribute("data-icon-bitmap", true);
+    }
+
+    /** Set a full-color bitmap/SVG URL without stuffing data: URLs into the `icon` attribute. */
+    public setResourceIcon(url: string): this {
+        const next = String(url || "").trim();
+        if (!next) {
+            this.#clearResourceIconPresentation();
+            return this;
+        }
+        this.setAttribute("icon-source", "resource");
+        this.#syncIconSourceFlags();
+        this.#updateResourceIcon(next);
+        return this;
+    }
+
+    #updateResourceIcon(nextIcon: string): void {
+        this.#syncIconSourceFlags();
+        this.#maskKeyBase = `resource:${nextIcon.slice(0, 96)}`;
+        this.#pendingIconName = null;
+
+        const finish = (url: string): void => {
+            this.#currentIconUrl = url;
+            this.#applyResourceImage(url);
+        };
+
+        if (nextIcon.startsWith("data:") || nextIcon.startsWith("blob:")) {
+            finish(nextIcon);
+            return;
+        }
+
+        if (
+            typeof IntersectionObserver !== "undefined" &&
+            this.#intersectionStateKnown &&
+            !this.#isIntersecting
+        ) {
+            this.#pendingIconName = nextIcon;
+            if (isPathURL(nextIcon)) {
+                prefetchIcon(nextIcon);
+            }
+            return;
+        }
+
+        requestAnimationFrame(() => {
+            const shouldLoad =
+                !this.#currentIconUrl ||
+                this.#isIntersecting ||
+                (this?.checkVisibility?.({
+                    contentVisibilityAuto: true,
+                    opacityProperty: true,
+                    visibilityProperty: true,
+                }) ??
+                    true);
+            if (!shouldLoad) {
+                return;
+            }
+
+            const requestKey = this.#maskKeyBase;
+            (async () => {
+                try {
+                    const url = await loadAsImage(nextIcon, undefined, { fetchPriority: "high" });
+                    if (!url || typeof url !== "string") {
+                        return;
+                    }
+                    if (this.#maskKeyBase !== requestKey) {
+                        return;
+                    }
+                    if (this.icon.trim() && this.icon.trim() !== nextIcon) {
+                        return;
+                    }
+                    finish(url);
+                    this.#retryAttempt = 0;
+                } catch (error) {
+                    if (typeof console !== "undefined") {
+                        console.warn?.("[ui-icon] Failed to load resource icon", { nextIcon }, error);
+                    }
+                }
+            })();
+        });
     }
 
     #retryAttempt = 0;
@@ -308,11 +470,27 @@ export class UIPhosphorIcon extends HTMLElementBase {
         }
 
         if (!nextIcon) {
+            if (this.#isResourceIconLocked()) {
+                return this;
+            }
             this.#pendingIconName = null;
             this.#currentIconUrl = "";
             this.#maskKeyBase = "";
+            this.#clearResourceIconPresentation();
             return this;
         }
+
+        const explicitSource = (this.getAttribute("icon-source") ?? "").trim().toLowerCase();
+        const treatAsResource =
+            explicitSource === "resource" ||
+            (explicitSource !== "phosphor" && !isPhosphorIconName(nextIcon));
+
+        if (treatAsResource) {
+            this.#updateResourceIcon(nextIcon);
+            return this;
+        }
+
+        this.#clearResourceIconPresentation();
 
         const kebab = resolvePhosphorIconFileBase(nextIcon);
         const styleKey = (this.iconStyle ?? "duotone").trim().toLowerCase();
@@ -436,7 +614,7 @@ export class UIPhosphorIcon extends HTMLElementBase {
 
             if (isIntersecting !== this.#isIntersecting) {
                 this.#isIntersecting = isIntersecting;
-                if (isIntersecting) {
+                if (isIntersecting && !this.#isResourceIconLocked()) {
                     this.updateIcon(this.#pendingIconName ?? this.icon);
                 }
             }
@@ -458,7 +636,7 @@ export class UIPhosphorIcon extends HTMLElementBase {
 
     #handleContentVisibility = (e: Event) => {
         // @ts-ignore
-        if (e.skipped === false) {
+        if (e.skipped === false && !this.#isResourceIconLocked()) {
             this.updateIcon(this.#pendingIconName ?? this.icon);
         }
     }
@@ -493,6 +671,8 @@ export class UIPhosphorIcon extends HTMLElementBase {
                 typeof paddingOption === "number" ? `${paddingOption}rem` : String(paddingOption);
             this.style.setProperty("--icon-padding", paddingValue);
         }
+        this.#applyIconPaddingAttr();
+        this.#syncIconSourceFlags();
 
         const sizeAttr = this.getAttribute("size");
         if (sizeAttr) {
@@ -544,6 +724,13 @@ export class UIPhosphorIcon extends HTMLElementBase {
 
     #queueMaskUpdate() {
         if (!this.#currentIconUrl || !this.isConnected) { return; }
+        if (
+            this.hasAttribute("data-icon-bitmap") ||
+            this.hasAttribute("data-launcher-icon") ||
+            this.#resourceImageUrl
+        ) {
+            return;
+        }
         if (this.#queuedMaskUpdate) { return; }
 
         const forResolve = Promise.withResolvers<void>();
