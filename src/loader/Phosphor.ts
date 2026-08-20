@@ -37,11 +37,20 @@ import { PHOSPHOR_DUOTONE_STATIC } from "./generated/phosphor-duotone-known";
 //
 const createStyle = preloadStyle(styles);
 
-type BitmapPresentationMode = "color" | "mask-invert";
+/** CSS `data-icon-bitmap-mode` values (glyph is Phosphor name — no bitmap). */
+type BitmapPresentationMode = "colored" | "masked" | "masked-inverse";
 
-/** Pick CSS bitmap pipeline: full-color PNG vs luminance mask + exclude invert. */
+const normalizeBitmapPresentationMode = (raw: unknown): BitmapPresentationMode | "" => {
+    const v = String(raw || "").trim().toLowerCase();
+    if (v === "colored" || v === "color") return "colored";
+    if (v === "masked") return "masked";
+    if (v === "masked-inverse" || v === "mask-invert" || v === "invert") return "masked-inverse";
+    return "";
+};
+
+/** Pick CSS bitmap pipeline: full-color PNG vs luminance mask (+ optional invert). */
 const detectBitmapPresentationMode = (url: string): Promise<BitmapPresentationMode> => {
-    if (typeof document === "undefined") return Promise.resolve("color");
+    if (typeof document === "undefined") return Promise.resolve("colored");
 
     return new Promise((resolve) => {
         const img = new Image();
@@ -57,7 +66,7 @@ const detectBitmapPresentationMode = (url: string): Promise<BitmapPresentationMo
                     canvas.getContext("2d", { willReadFrequently: true }) ||
                     canvas.getContext("2d");
                 if (!ctx) {
-                    resolve("color");
+                    resolve("colored");
                     return;
                 }
                 ctx.clearRect(0, 0, sample, sample);
@@ -92,7 +101,7 @@ const detectBitmapPresentationMode = (url: string): Promise<BitmapPresentationMo
                 }
 
                 if (opaque < 8) {
-                    resolve("mask-invert");
+                    resolve("masked-inverse");
                     return;
                 }
 
@@ -102,22 +111,22 @@ const detectBitmapPresentationMode = (url: string): Promise<BitmapPresentationMo
 
                 /* Light-majority glyph / plate — invert so it reads on a dark tile. */
                 if (whiteRatio > 0.3) {
-                    resolve("mask-invert");
+                    resolve("masked-inverse");
                     return;
                 }
 
                 /* Saturated / mixed app art — keep original colors. */
                 if (chromaRatio > 0.4 || darkRatio > 0.2) {
-                    resolve("color");
+                    resolve("colored");
                     return;
                 }
 
-                resolve("mask-invert");
+                resolve("masked");
             } catch {
-                resolve("color");
+                resolve("colored");
             }
         };
-        img.onerror = () => resolve("color");
+        img.onerror = () => resolve("colored");
         img.src = url;
     });
 };
@@ -286,6 +295,11 @@ export class UIPhosphorIcon extends HTMLElementBase {
         if (this.#isResourceIconLocked()) {
             if (this.#resourceImageUrl) {
                 this.#applyResourceImage(this.#resourceImageUrl);
+            } else if (this.#pendingIconName) {
+                this.#updateResourceIcon(
+                    this.#pendingIconName,
+                    normalizeBitmapPresentationMode(this.getAttribute("data-icon-bitmap-mode")) || "auto"
+                );
             }
             return;
         }
@@ -419,19 +433,33 @@ export class UIPhosphorIcon extends HTMLElementBase {
         this.shadowRoot?.querySelector("img.ui-icon-bitmap")?.remove();
         this.removeAttribute("data-icon-bitmap");
         this.removeAttribute("data-icon-bitmap-mode");
+        this.removeAttribute("data-icon-bitmap-locked");
         this.#bitmapAnalyzeGen++;
         this.#resourceImageUrl = "";
         this.style.removeProperty("--icon-resource-image");
-        this.style.removeProperty("--icon-image");
+        this.style.setProperty("--icon-image", "");
         this.removeAttribute("data-icon-source");
     }
 
-    #applyBitmapPresentationMode(url: string): void {
-        const preset = (this.getAttribute("data-icon-bitmap-mode") ?? "").trim().toLowerCase();
-        if (preset === "mask-invert" && this.hasAttribute("data-icon-bitmap-locked")) {
+    #applyBitmapPresentationMode(url: string, forced?: BitmapPresentationMode | "auto"): void {
+        const locked = this.hasAttribute("data-icon-bitmap-locked");
+        const fromAttr = normalizeBitmapPresentationMode(this.getAttribute("data-icon-bitmap-mode"));
+        const forcedMode = forced && forced !== "auto" ? normalizeBitmapPresentationMode(forced) : "";
+        if (forcedMode) {
+            this.setAttribute("data-icon-bitmap-mode", forcedMode);
+            if (forced !== "auto") this.toggleAttribute("data-icon-bitmap-locked", true);
             return;
         }
-        this.setAttribute("data-icon-bitmap-mode", "color");
+        if (locked && fromAttr) {
+            this.setAttribute("data-icon-bitmap-mode", fromAttr);
+            return;
+        }
+        if (fromAttr) {
+            this.setAttribute("data-icon-bitmap-mode", fromAttr);
+            void this.#refineBitmapPresentationMode(url);
+            return;
+        }
+        this.setAttribute("data-icon-bitmap-mode", "colored");
         void this.#refineBitmapPresentationMode(url);
     }
 
@@ -444,11 +472,34 @@ export class UIPhosphorIcon extends HTMLElementBase {
         if (!this.isConnected || this.#resourceImageUrl !== url) return;
         if (this.hasAttribute("data-icon-bitmap-locked")) return;
 
+        const prev = normalizeBitmapPresentationMode(this.getAttribute("data-icon-bitmap-mode"));
         this.setAttribute("data-icon-bitmap-mode", mode);
+        if (prev !== mode) {
+            this.#syncColoredBitmapElement(url);
+        }
     }
 
-    /** Paint a full-color PNG/SVG/WebP via `--icon-resource-image` (unregistered; survives blob URLs). */
-    #applyResourceImage(url: string): void {
+    #syncColoredBitmapElement(url: string): void {
+        this.shadowRoot?.querySelector("img.ui-icon-bitmap")?.remove();
+        this.querySelector('img.ui-icon-bitmap[slot="resource"]')?.remove();
+        const resolved =
+            normalizeBitmapPresentationMode(this.getAttribute("data-icon-bitmap-mode")) || "colored";
+        if (resolved !== "colored" || !url || !this.shadowRoot) return;
+        const img = document.createElement("img");
+        img.className = "ui-icon-bitmap";
+        img.alt = "";
+        img.decoding = "async";
+        img.draggable = false;
+        img.src = url;
+        this.shadowRoot.appendChild(img);
+    }
+
+    /**
+     * Paint a PNG/SVG/WebP resource.
+     * WHY: Capacitor/Android WebView often fails to paint `background-image: var(--icon-resource-image)`
+     * for blob:/data: URLs — use a real <img> for colored; keep CSS mask vars for masked modes.
+     */
+    #applyResourceImage(url: string, mode?: BitmapPresentationMode | "auto"): void {
         this.#ensureShadowRoot();
         if (!this.#styleAttached) {
             const styleNode = createStyle?.() ?? null;
@@ -457,17 +508,16 @@ export class UIPhosphorIcon extends HTMLElementBase {
             }
             this.#styleAttached = true;
         }
-        this.querySelector('img.ui-icon-bitmap[slot="resource"]')?.remove();
-        this.shadowRoot?.querySelector("img.ui-icon-bitmap")?.remove();
         const imageValue = toCssImageUrl(url);
         this.#resourceImageUrl = url;
         this.style.setProperty("--icon-resource-image", imageValue);
         this.toggleAttribute("data-icon-bitmap", true);
-        this.#applyBitmapPresentationMode(url);
+        this.#applyBitmapPresentationMode(url, mode);
+        this.#syncColoredBitmapElement(url);
     }
 
-    /** Set a full-color bitmap/SVG URL without stuffing data: URLs into the `icon` attribute. */
-    public setResourceIcon(url: string): this {
+    /** Set a bitmap/SVG URL without stuffing data: URLs into the `icon` attribute. */
+    public setResourceIcon(url: string, mode: BitmapPresentationMode | "auto" = "auto"): this {
         const next = String(url || "").trim();
         if (!next) {
             this.#clearResourceIconPresentation();
@@ -475,21 +525,45 @@ export class UIPhosphorIcon extends HTMLElementBase {
         }
         this.setAttribute("icon-source", "resource");
         this.#syncIconSourceFlags();
-        this.#updateResourceIcon(next);
+        this.#updateResourceIcon(next, mode);
         return this;
     }
 
-    #updateResourceIcon(nextIcon: string): void {
+    /** Explicit presentation mode for a resource icon (`colored` / `masked` / `masked-inverse`). */
+    public setBitmapPresentationMode(mode: BitmapPresentationMode | string, locked = true): this {
+        const normalized = normalizeBitmapPresentationMode(mode) || "colored";
+        this.setAttribute("data-icon-bitmap-mode", normalized);
+        this.toggleAttribute("data-icon-bitmap-locked", Boolean(locked));
+        if (this.#resourceImageUrl) {
+            this.#syncColoredBitmapElement(this.#resourceImageUrl);
+        }
+        return this;
+    }
+
+    #updateResourceIcon(nextIcon: string, mode: BitmapPresentationMode | "auto" = "auto"): void {
         this.#syncIconSourceFlags();
         this.#maskKeyBase = `resource:${nextIcon.slice(0, 96)}`;
         this.#pendingIconName = null;
 
         const finish = (url: string): void => {
             this.#currentIconUrl = url;
-            this.#applyResourceImage(url);
+            this.#applyResourceImage(url, mode);
         };
 
-        if (nextIcon.startsWith("data:") || nextIcon.startsWith("blob:")) {
+        /*
+         * WHY: Capacitor/Android WebView — `loadAsImage` uses fetch() and dies on CORS for
+         * https icon URLs. Colored/masked tiles only need the URL in <img>/CSS mask; the
+         * browser loads it without a CORS fetch. Always direct-paint URL-like resources.
+         */
+        const looksLikeUrl =
+            nextIcon.startsWith("data:") ||
+            nextIcon.startsWith("blob:") ||
+            /^https?:\/\//i.test(nextIcon) ||
+            nextIcon.startsWith("/") ||
+            nextIcon.startsWith("./") ||
+            nextIcon.startsWith("../");
+        const locked = this.hasAttribute("data-icon-bitmap-locked");
+        if (looksLikeUrl || locked) {
             finish(nextIcon);
             return;
         }
@@ -506,6 +580,28 @@ export class UIPhosphorIcon extends HTMLElementBase {
             return;
         }
 
+        this.#pendingIconName = nextIcon;
+        const requestKey = this.#maskKeyBase;
+        const load = async (): Promise<void> => {
+            try {
+                const url = await loadAsImage(nextIcon, undefined, { fetchPriority: "high" });
+                if (!url || typeof url !== "string") return;
+                if (this.#maskKeyBase !== requestKey) return;
+                finish(url);
+                this.#pendingIconName = null;
+                this.#retryAttempt = 0;
+            } catch (error) {
+                if (typeof console !== "undefined") {
+                    console.warn?.("[ui-icon] Failed to load resource icon", { nextIcon }, error);
+                }
+            }
+        };
+
+        if (!this.isConnected) {
+            void load();
+            return;
+        }
+
         requestAnimationFrame(() => {
             const shouldLoad =
                 !this.#currentIconUrl ||
@@ -516,31 +612,8 @@ export class UIPhosphorIcon extends HTMLElementBase {
                     visibilityProperty: true,
                 }) ??
                     true);
-            if (!shouldLoad) {
-                return;
-            }
-
-            const requestKey = this.#maskKeyBase;
-            (async () => {
-                try {
-                    const url = await loadAsImage(nextIcon, undefined, { fetchPriority: "high" });
-                    if (!url || typeof url !== "string") {
-                        return;
-                    }
-                    if (this.#maskKeyBase !== requestKey) {
-                        return;
-                    }
-                    if (this.icon.trim() && this.icon.trim() !== nextIcon) {
-                        return;
-                    }
-                    finish(url);
-                    this.#retryAttempt = 0;
-                } catch (error) {
-                    if (typeof console !== "undefined") {
-                        console.warn?.("[ui-icon] Failed to load resource icon", { nextIcon }, error);
-                    }
-                }
-            })();
+            if (!shouldLoad) return;
+            void load();
         });
     }
 
