@@ -64,7 +64,7 @@
             color: var(--icon-color, currentColor) !important;
             grid-template-columns: minmax(0px, 1fr);
             grid-template-rows: minmax(0px, 1fr);
-            object-fit: contain;
+            object-fit: cover;
             object-position: center;
             transform: translateZ(0);
             transform-origin: 50% 50%;
@@ -95,7 +95,7 @@
             mask-origin: content-box;
             mask-clip: content-box;
             mask-position: center;
-            mask-size: contain;
+            mask-size: cover;
             mask-type: luminance;
             mask-origin: content-box;
             mask-clip: content-box;
@@ -106,10 +106,10 @@
             -webkit-mask-origin: content-box;
             -webkit-mask-clip: content-box;
             -webkit-mask-position: center;
-            -webkit-mask-size: contain;
+            -webkit-mask-size: cover;
             -webkit-mask-type: luminance;
             color: var(--icon-color, currentColor) !important;
-            object-fit: contain;
+            object-fit: cover;
             object-position: center;
             line-height: 0;
             font-size: 0;
@@ -142,7 +142,7 @@
             background: var(--icon-after-background, none);
             mask-image: var(--icon-after-mask, none);
             -webkit-mask-image: var(--icon-after-mask, none);
-            mask-size: contain;
+            mask-size: cover;
             mask-repeat: no-repeat;
             mask-position: center;
             mask-type: luminance;
@@ -150,7 +150,7 @@
             mask-clip: content-box;
             -webkit-mask-origin: content-box;
             -webkit-mask-clip: content-box;
-            -webkit-mask-size: contain;
+            -webkit-mask-size: cover;
             -webkit-mask-repeat: no-repeat;
             -webkit-mask-position: center;
             -webkit-mask-type: luminance;
@@ -216,7 +216,7 @@
         block-size: 100%;
         max-inline-size: 100%;
         max-block-size: 100%;
-        object-fit: contain;
+        object-fit: cover;
         object-position: center;
         pointer-events: none;
         user-select: none;
@@ -246,8 +246,8 @@
         -webkit-mask-image: var(--icon-resource-image, none) !important;
         mask-mode: luminance;
         -webkit-mask-mode: luminance;
-        mask-size: contain;
-        -webkit-mask-size: contain;
+        mask-size: cover;
+        -webkit-mask-size: cover;
     }
 
     :host([data-icon-bitmap][data-icon-bitmap-mode="masked-inverse"])::before,
@@ -262,8 +262,8 @@
         -webkit-mask-mode: luminance;
         mask-composite: exclude;
         -webkit-mask-composite: exclude;
-        mask-size: contain;
-        -webkit-mask-size: contain;
+        mask-size: cover;
+        -webkit-mask-size: cover;
     }
 
     :host([data-launcher-icon])::before,
