@@ -151,7 +151,7 @@ const HTMLElementBase = ((globalThis as unknown as { HTMLElement?: typeof HTMLEl
 // @ts-ignore
 export class UIPhosphorIcon extends HTMLElementBase {
     static get observedAttributes() {
-        return ["icon", "icon-style", "icon-source", "icon-padding", "size", "width", "icon-base"];
+        return ["icon", "icon-style", "icon-source", "icon-padding", "size", "width", "icon-base", "resource"];
     }
 
     #options: { padding?: number | string; icon?: string; iconStyle?: string } = {
@@ -223,6 +223,21 @@ export class UIPhosphorIcon extends HTMLElementBase {
         }
     }
 
+    get resource(): string {
+        return this.getAttribute("resource") ?? "";
+    }
+
+    set resource(value: string) {
+        const next = String(value ?? "").trim();
+        if (!next) {
+            this.removeAttribute("resource");
+            return;
+        }
+        if (this.getAttribute("resource") !== next) {
+            this.setAttribute("resource", next);
+        }
+    }
+
     get size(): string | null {
         return this.getAttribute("size");
     }
@@ -289,6 +304,14 @@ export class UIPhosphorIcon extends HTMLElementBase {
         }
         if (!this.hasAttribute("icon-style") && this.#options.iconStyle) {
             this.setAttribute("icon-style", this.#options.iconStyle);
+        }
+
+        const resourceAttr = (this.getAttribute("resource") ?? "").trim();
+        if (resourceAttr && !this.#resourceImageUrl) {
+            this.setResourceIcon(
+                resourceAttr,
+                normalizeBitmapPresentationMode(this.getAttribute("data-icon-bitmap-mode")) || "auto"
+            );
         }
 
         const pendingIcon = this.#pendingIconName ?? this.icon;
@@ -386,6 +409,20 @@ export class UIPhosphorIcon extends HTMLElementBase {
             case "icon-padding": {
                 this.#syncIconSourceFlags();
                 this.#applyIconPaddingAttr();
+                break;
+            }
+            case "resource": {
+                const url = (newValue ?? "").trim();
+                if (!url) {
+                    if ((this.getAttribute("icon-source") ?? "").trim().toLowerCase() === "resource") {
+                        this.#clearResourceIconPresentation();
+                    }
+                    break;
+                }
+                this.setResourceIcon(
+                    url,
+                    normalizeBitmapPresentationMode(this.getAttribute("data-icon-bitmap-mode")) || "auto"
+                );
                 break;
             }
         }
