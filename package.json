@@ -1,7 +1,7 @@
 {
     "name": "@fest-lib/icon",
     "description": "fest-lib Phosphor ui-icon with OPFS and CSS-registry caches",
-    "version": "0.1.14",
+    "version": "0.1.15",
     "license": "MIT",
     "type": "module",
     "sideEffects": true,
