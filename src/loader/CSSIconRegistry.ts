@@ -1,3 +1,4 @@
+import { supportsConstructableStylesheet } from "@fest-lib/style-lib";
 import { isBundledPhosphorDuotone } from "./phosphor-bundled-duotone";
 
 /**
@@ -270,19 +271,20 @@ export const ensureStyleSheet = (): CSSStyleSheet | null => {
         loadRegistryState();
     }
 
-    // Check for existing style element
-    /*styleElement = document.querySelector<HTMLStyleElement>("style[data-icon-registry]");
-
-    if (!styleElement) {
-        styleElement = document.createElement("style");
-        styleElement.setAttribute("data-icon-registry", "true");
-        // Insert early in head for lower specificity
-        const head = document.head || document.documentElement;
-        head.insertBefore(styleElement, head.firstChild);
-    }*/
-
-    iconStyleSheet = new CSSStyleSheet() as CSSStyleSheet;//styleElement.sheet;
-    document.adoptedStyleSheets?.push?.((iconStyleSheet as unknown as CSSStyleSheet));
+    if (supportsConstructableStylesheet()) {
+        iconStyleSheet = new CSSStyleSheet() as CSSStyleSheet;
+        document.adoptedStyleSheets?.push?.(iconStyleSheet);
+    } else {
+        styleElement = document.querySelector<HTMLStyleElement>("style[data-icon-registry]");
+        if (!styleElement) {
+            styleElement = document.createElement("style");
+            styleElement.setAttribute("data-icon-registry", "true");
+            const head = document.head || document.documentElement;
+            head.insertBefore(styleElement, head.firstChild);
+        }
+        iconStyleSheet = styleElement.sheet;
+        if (!iconStyleSheet) return null;
+    }
 
     //
     iconStyleSheet.insertRule(`@property --icon-image { syntax: "<image>"; inherits: true; initial-value: linear-gradient(#0000, #0000); }`, iconStyleSheet.cssRules.length);

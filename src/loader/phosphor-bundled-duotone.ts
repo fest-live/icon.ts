@@ -2,7 +2,7 @@
  * Icons baked into Phosphor.scss (generated map). Registry rules must not set
  * `--icon-image` for these or they override `:host` rules in the shadow sheet.
  */
-import { PHOSPHOR_DUOTONE_STATIC } from "./generated/phosphor-duotone-known.ts";
+import { PHOSPHOR_DUOTONE_STATIC } from "./generated/phosphor-duotone-known.js";
 
 /** Keep in sync with Loader.ts `PHOSPHOR_KEBAB_ALIASES`. */
 const PHOSPHOR_KEBAB_ALIASES: Record<string, string> = {

@@ -1,20 +1,4 @@
-// should to return from source code to style element (in shadow DOM)
-export const preloadStyle = (srcCode: string) => {
-    const content = typeof srcCode === "string" ? srcCode?.trim?.() : "";
-    if (!content) { return () => null as HTMLStyleElement | null; }
-
-    //
-    if (typeof document === "undefined") { return null; }
-    const styleEl = document.createElement("style");
-    styleEl.setAttribute("data-ui-phosphor-icon", "true");
-    styleEl.textContent = content;
-
-    //
-    return () => styleEl?.cloneNode?.(true);
-};
-
-// @ts-ignore – Vite inline import
-import styles from "./Phosphor.scss?inline";
+import { loadInlineStyle } from "@fest-lib/style-lib";
 import { FALLBACK_ICON_DATA_URL } from "./fallback-icon-data-url";
 import {
     ensureMaskValue,
@@ -34,9 +18,16 @@ import {
 } from "./Loader";
 import { PHOSPHOR_DUOTONE_STATIC } from "./generated/phosphor-duotone-known";
 
-//
-const createStyle = preloadStyle(styles);
+// @ts-ignore – Vite inline import
+import styles from "./Phosphor.scss?inline";
 
+const attachPhosphorHostStyle = (root: ShadowRoot | null | undefined): void => {
+    if (!root || root.querySelector("style[data-ui-phosphor-icon]")) return;
+    const node = loadInlineStyle(styles, root, "") as HTMLStyleElement | null;
+    node?.setAttribute?.("data-ui-phosphor-icon", "true");
+};
+
+//
 /** CSS `data-icon-bitmap-mode` values (glyph is Phosphor name — no bitmap). */
 type BitmapPresentationMode = "colored" | "masked" | "masked-inverse";
 
@@ -294,8 +285,7 @@ export class UIPhosphorIcon extends HTMLElementBase {
         this.#setupVisibilityObserver();
 
         if (!this.#styleAttached) {
-            const styleNode = createStyle?.() ?? null;
-            if (styleNode) { this.shadowRoot!.appendChild(styleNode); }
+            attachPhosphorHostStyle(this.shadowRoot);
             this.#styleAttached = true;
         }
 
@@ -539,10 +529,7 @@ export class UIPhosphorIcon extends HTMLElementBase {
     #applyResourceImage(url: string, mode?: BitmapPresentationMode | "auto"): void {
         this.#ensureShadowRoot();
         if (!this.#styleAttached) {
-            const styleNode = createStyle?.() ?? null;
-            if (styleNode) {
-                this.shadowRoot!.appendChild(styleNode);
-            }
+            attachPhosphorHostStyle(this.shadowRoot);
             this.#styleAttached = true;
         }
         const imageValue = toCssImageUrl(url);
