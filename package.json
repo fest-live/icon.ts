@@ -73,10 +73,10 @@
         "publish": "node ../scripts/bump-patch-version.mjs && npm run release"
     },
     "devDependencies": {
-        "@types/node": ">=22.8.1",
-        "sass": ">=1.93.3",
-        "typescript": ">=6.0.0-beta",
-        "vite": "^8.0.7",
-        "vite-plugin-external": ">=6.2.2"
+        "@types/node": ">=26.4.1",
+        "sass": ">=1.104.0",
+        "typescript": "^6.0.3",
+        "vite": "^8.2.2",
+        "vite-plugin-external": ">=8.0.3"
     }
 }
