@@ -1,6 +1,7 @@
 import {
     isOPFSSupported,
     getCachedVectorIcon,
+    readCachedVectorSvg,
     cacheVectorIcon,
     getCachedRasterIcon,
     cacheRasterIcon,
@@ -23,6 +24,8 @@ export const iconMap = new Map<string, Promise<string>>();
 // CSS stylesheet handles the actual caching via attribute selectors
 export const resolvedUrlCache = new Map<string, string>();
 export const imageElementCache = new Map<string, Promise<HTMLImageElement>>();
+/** PERF: decoded SVG data URLs. Survives iconMap clears of in-flight keys only when filled. */
+const vectorDataUrlCache = new Map<string, string>();
 
 // Re-export registry functions for external use
 export { registerIconRule, hasIconRule } from "./CSSIconRegistry";
@@ -765,17 +768,22 @@ const fetchSvgBlob = async (url: string, timeoutMs: number, opts?: IconLoadOptio
     }
 };
 
+const rememberVectorDataUrl = (key: string, dataUrl: string): string => {
+    if (key && dataUrl && dataUrl !== FALLBACK_ICON_DATA_URL) {
+        vectorDataUrlCache.set(key, dataUrl);
+    }
+    return dataUrl;
+};
+
 const tryLoadFromVectorCache = async (canonicalUrl: string): Promise<string | null> => {
     if (!canonicalUrl) return null;
+    const memorized = vectorDataUrlCache.get(canonicalUrl);
+    if (memorized) return memorized;
     if (!isOPFSSupported()) return null;
     try {
-        const cached = await getCachedVectorIcon(canonicalUrl);
-        if (!cached) return null;
-
-        const blob = await fetchSvgBlob(cached, FETCH_TIMEOUT_MS);
-        const svgText = await blob.text();
-        if (!svgText || svgText.trim().length === 0) return null;
-        return toSvgDataUrl(svgText);
+        const svgText = await readCachedVectorSvg(canonicalUrl);
+        if (!svgText) return null;
+        return rememberVectorDataUrl(canonicalUrl, toSvgDataUrl(svgText));
     } catch {
         return null;
     }
@@ -992,24 +1000,21 @@ const loadAsImageInternal = async (
 
         // Skip if this is already a data URL (from cache or previous processing)
         if (resolvedUrl.startsWith("data:")) {
-            console.log(`[ui-icon] Already a data URL, returning as-is`);
             return resolvedUrl;
         }
 
         const effectiveUrl = rewritePhosphorUrl(resolvedUrl);
-        if (effectiveUrl !== resolvedUrl) {
-            console.log(`[ui-icon] Rewrote phosphor URL: ${resolvedUrl} -> ${effectiveUrl}`);
-        }
 
         try {
+            const memorized = vectorDataUrlCache.get(effectiveUrl);
+            if (memorized) return memorized;
+
             // Try OPFS cache first (fast, local, avoids network storms).
             if (isOPFSSupported()) {
                 try {
-                    const cached = await withTimeout(getCachedVectorIcon(effectiveUrl), OPFS_READ_BUDGET_MS);
-                    if (cached) {
-                        const blob = await fetchSvgBlob(cached, FETCH_TIMEOUT_MS, loadOpts);
-                        const svgText = await blob.text();
-                        return toSvgDataUrl(svgText);
+                    const svgText = await withTimeout(readCachedVectorSvg(effectiveUrl), OPFS_READ_BUDGET_MS);
+                    if (svgText) {
+                        return rememberVectorDataUrl(effectiveUrl, toSvgDataUrl(svgText));
                     }
                 } catch {
                     /* cache miss or timeout */
@@ -1050,7 +1055,7 @@ const loadAsImageInternal = async (
                 throw new Error(`Blob too large (${blob.size} bytes)`);
             }
             const svgText = await blob.text();
-            const dataUrl = toSvgDataUrl(svgText);
+            const dataUrl = rememberVectorDataUrl(effectiveUrl, toSvgDataUrl(svgText));
 
             // OPFS: only persist successful payloads (canonical key = effectiveUrl).
             if (isOPFSSupported()) {
@@ -1064,7 +1069,6 @@ const loadAsImageInternal = async (
 
             // Don't spam retries on 404/4xx: it's a deterministic failure.
             if (attempt < MAX_RETRIES && !isClientErrorStatus(error)) {
-                console.log(`[ui-icon] Queueing retry ${attempt + 1} for ${effectiveUrl}`);
                 return new Promise((resolve, reject) => {
                     retryQueue.push({ name, creator, resolve, reject, retries: attempt + 1, loadOpts });
                     scheduleRetryQueue();
@@ -1167,6 +1171,7 @@ export const prefetchIcon = (url: string): void => {
  */
 export const clearIconCaches = (): void => {
     resolvedUrlCache.clear();
+    vectorDataUrlCache.clear();
     imageElementCache.clear();
     iconMap.clear();
     retryQueue.length = 0; // Clear pending retries
@@ -1185,6 +1190,7 @@ export const invalidateIconCache = (iconName: string): void => {
 
     // Remove from in-memory caches
     resolvedUrlCache.delete(iconName);
+    vectorDataUrlCache.delete(iconName);
     imageElementCache.delete(iconName);
     iconMap.delete(iconName);
 

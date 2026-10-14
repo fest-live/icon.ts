@@ -72,6 +72,30 @@ const sanitizeKey = (key: string): string => {
 };
 
 /**
+ * PERF: directory open only. A full size walk or SVG validation here blocks every
+ * icon read on boot (getCached* awaits this promise).
+ */
+let maintenanceScheduled = false;
+
+const scheduleIconCacheMaintenance = (): void => {
+    if (maintenanceScheduled || typeof globalThis === "undefined") return;
+    maintenanceScheduled = true;
+    const run = (): void => {
+        void (async () => {
+            try {
+                const stats = await getCacheStats();
+                if (stats && stats.totalSize > MAX_CACHE_SIZE_BYTES) await clearAllCache();
+            } catch {
+                /* idle maintenance */
+            }
+        })();
+    };
+    const ric = (globalThis as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+    if (typeof ric === "function") ric(run, { timeout: 8000 });
+    else globalThis.setTimeout?.(run, 4000);
+};
+
+/**
  * Initializes the OPFS cache directories
  */
 export const initOPFSCache = async (): Promise<boolean> => {
@@ -84,37 +108,18 @@ export const initOPFSCache = async (): Promise<boolean> => {
             const storageRoot = await navigator.storage.getDirectory();
             rootHandle = await storageRoot.getDirectoryHandle(ROOT_DIR_NAME, { create: true });
 
-            // Check cache version and clear if outdated
             const meta = await readCacheMeta();
-            const now = Date.now();
-
+            /* Format change only — age/size wipes used to refetch the whole icon set on boot. */
             if (meta && meta.version !== CACHE_VERSION) {
-                if (typeof console !== "undefined") {
-                    console.log?.("[icon-cache] Cache version mismatch, clearing cache");
-                }
-                await clearAllCache();
-            } else if (meta && (now - meta.lastAccess) > MAX_CACHE_AGE_MS) {
-                if (typeof console !== "undefined") {
-                    console.log?.("[icon-cache] Cache expired, clearing cache");
-                }
-                await clearAllCache();
-            } else {
-                // Check cache size and clean up if too large
-                const stats = await getCacheStats();
-                if (stats && stats.totalSize > MAX_CACHE_SIZE_BYTES) {
-                    if (typeof console !== "undefined") {
-                        console.log?.("[icon-cache] Cache size exceeded, clearing cache");
-                    }
-                    await clearAllCache();
-                }
+                await rootHandle.removeEntry(VECTOR_DIR, { recursive: true }).catch(() => undefined);
+                await rootHandle.removeEntry(RASTER_DIR, { recursive: true }).catch(() => undefined);
             }
 
-            // Create/get subdirectories
             vectorDirHandle = await rootHandle.getDirectoryHandle(VECTOR_DIR, { create: true });
             rasterDirHandle = await rootHandle.getDirectoryHandle(RASTER_DIR, { create: true });
 
-            // Write/update metadata
             await writeCacheMeta();
+            scheduleIconCacheMaintenance();
 
             return true;
         } catch (error) {
@@ -217,6 +222,25 @@ export const getCachedVectorIcon = async (key: string): Promise<string | null> =
         const fileHandle = await vectorDirHandle!.getFileHandle(filename);
         const file = await fileHandle.getFile();
         return URL.createObjectURL(file);
+    } catch {
+        return null;
+    }
+};
+
+/** SVG text for a cached vector, or null. Avoids a blob URL plus a second fetch. */
+export const readCachedVectorSvg = async (key: string): Promise<string | null> => {
+    if (!vectorDirHandle) {
+        const ready = await initOPFSCache();
+        if (!ready || !vectorDirHandle) return null;
+    }
+
+    try {
+        const filename = sanitizeKey(key) + ".svg";
+        const fileHandle = await vectorDirHandle!.getFileHandle(filename);
+        const file = await fileHandle.getFile();
+        const text = await file.text();
+        if (!text || !text.includes("<svg")) return null;
+        return text;
     } catch {
         return null;
     }
@@ -475,15 +499,11 @@ export const validateAndCleanCache = async (): Promise<void> => {
 };
 
 /**
- * Pre-initializes cache on module load (non-blocking)
+ * Pre-initializes cache on module load (non-blocking).
+ * PERF: do not validate every SVG here — that read storm stalls the first icon wave.
  */
 if (isOPFSSupported()) {
-    initOPFSCache().then(() => {
-        // Validate cache after initialization
-        validateAndCleanCache().catch(() => {
-            /* silent validation failure */
-        });
-    }).catch(() => {
+    initOPFSCache().catch(() => {
         /* silent init failure */
     });
 }
