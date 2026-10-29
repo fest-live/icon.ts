@@ -402,7 +402,7 @@ const flushPendingRules = () => {
 const scheduleFlush = () => {
     if (flushScheduled) return;
     flushScheduled = true;
-    queueMicrotask(flushPendingRules);
+    scheduler?.yield?.()?.then?.(flushPendingRules);
 };
 
 /**
@@ -564,7 +564,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     loadRegistryState();
 
     // Initialize stylesheet on next tick to ensure DOM is ready
-    queueMicrotask(() => {
+    scheduler?.yield?.()?.then?.(() => {
         ensureStyleSheet();
 
         // Listen for page visibility changes to reinitialize if needed
