@@ -280,7 +280,7 @@ export const ensureStyleSheet = (): CSSStyleSheet | null => {
             styleElement = document.createElement("style");
             styleElement.setAttribute("data-icon-registry", "true");
             const head = document.head || document.documentElement;
-            head.insertBefore(styleElement, head.firstChild);
+            head.moveBefore(styleElement, head.firstChild);
         }
         iconStyleSheet = styleElement.sheet;
         if (!iconStyleSheet) return null;
